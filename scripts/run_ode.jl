@@ -1,7 +1,7 @@
 # Step 1: Solve clean ODE and plot.
 using Pkg; Pkg.activate(".")
 using DifferentialEquations, Plots
-include("../src/Microgrid.jl")
+include(joinpath(@__DIR__, "..", "src", "Microgrid.jl"))
 using .Microgrid
 
 # --- Parameters & initial state ---

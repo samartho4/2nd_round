@@ -41,15 +41,10 @@ println("-"^40)
     # Neural network parameters (10 parameters)
     θ ~ MvNormal(zeros(10), 0.3)
     
-    # ODE solution with error handling
+    # ODE solution with strict tolerances for numerical stability
     prob = ODEProblem(baseline_nn!, u0, (minimum(t), maximum(t)), θ)
     
-    # Try with strict tolerances first, fall back to looser if needed
-    sol = try
-        solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
-    catch
-        solve(prob, Tsit5(), saveat=t, abstol=1e-4, reltol=1e-4, maxiters=10000)
-    end
+    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
@@ -141,15 +136,10 @@ end
     # Combine physics + neural parameters
     p = [ηin, ηout, α, β, γ, nn_params...]
     
-    # UDE solution with error handling
+    # UDE solution with strict tolerances for numerical stability
     prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
     
-    # Try with strict tolerances first, fall back to looser if needed
-    sol = try
-        solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
-    catch
-        solve(prob, Tsit5(), saveat=t, abstol=1e-4, reltol=1e-4, maxiters=10000)
-    end
+    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf

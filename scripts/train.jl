@@ -14,7 +14,7 @@ df_train = CSV.read("data/training_dataset.csv", DataFrame)
 df_test = CSV.read("data/test_dataset.csv", DataFrame)
 
 # Use larger subset for better training, but not too large to avoid ODE solver issues
-subset_size = 2000
+subset_size = 1500
 df_train_subset = df_train[1:subset_size, :]
 df_test_subset = df_test[1:min(300, nrow(df_test)), :]
 
@@ -41,9 +41,15 @@ println("-"^40)
     # Neural network parameters (10 parameters)
     θ ~ MvNormal(zeros(10), 0.3)
     
-    # ODE solution
+    # ODE solution with error handling
     prob = ODEProblem(baseline_nn!, u0, (minimum(t), maximum(t)), θ)
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-3, reltol=1e-3, maxiters=10000)
+    
+    # Try with strict tolerances first, fall back to looser if needed
+    sol = try
+        solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
+    catch
+        solve(prob, Tsit5(), saveat=t, abstol=1e-4, reltol=1e-4, maxiters=10000)
+    end
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
@@ -59,7 +65,11 @@ end
 # Train Bayesian Neural ODE
 println("Training Bayesian Neural ODE...")
 bayesian_model = bayesian_neural_ode(t_train, Y_train, u0_train)
-bayesian_chain = sample(bayesian_model, NUTS(0.65), 1000, discard_initial=20, progress=true)
+
+# Provide explicit initial parameters for better stability
+initial_params = (σ = 0.1, θ = zeros(10))
+
+bayesian_chain = sample(bayesian_model, NUTS(0.65), 1000, discard_initial=20, progress=true, initial_params=initial_params)
 
 # Extract results
 bayesian_params = Array(bayesian_chain)[:, 1:10]
@@ -131,9 +141,15 @@ end
     # Combine physics + neural parameters
     p = [ηin, ηout, α, β, γ, nn_params...]
     
-    # UDE solution
+    # UDE solution with error handling
     prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-3, reltol=1e-3, maxiters=10000)
+    
+    # Try with strict tolerances first, fall back to looser if needed
+    sol = try
+        solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
+    catch
+        solve(prob, Tsit5(), saveat=t, abstol=1e-4, reltol=1e-4, maxiters=10000)
+    end
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
@@ -149,7 +165,11 @@ end
 # Train UDE
 println("Training UDE...")
 ude_model = bayesian_ude(t_train, Y_train, u0_train)
-ude_chain = sample(ude_model, NUTS(0.65), 1000, discard_initial=20, progress=true)
+
+# Provide explicit initial parameters for better stability
+ude_initial_params = (σ = 0.1, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = zeros(15))
+
+ude_chain = sample(ude_model, NUTS(0.65), 1000, discard_initial=20, progress=true, initial_params=ude_initial_params)
 
 # Extract results
 ude_params = Array(ude_chain)

@@ -14,7 +14,7 @@ df_train = CSV.read("data/training_dataset.csv", DataFrame)
 df_test = CSV.read("data/test_dataset.csv", DataFrame)
 
 # Use larger subset for better training, but not too large to avoid ODE solver issues
-subset_size = 1000
+subset_size = 2000
 df_train_subset = df_train[1:subset_size, :]
 df_test_subset = df_test[1:min(300, nrow(df_test)), :]
 
@@ -59,7 +59,7 @@ end
 # Train Bayesian Neural ODE
 println("Training Bayesian Neural ODE...")
 bayesian_model = bayesian_neural_ode(t_train, Y_train, u0_train)
-bayesian_chain = sample(bayesian_model, NUTS(0.65), 200, discard_initial=20, progress=true)
+bayesian_chain = sample(bayesian_model, NUTS(0.65), 1000, discard_initial=20, progress=true)
 
 # Extract results
 bayesian_params = Array(bayesian_chain)[:, 1:10]
@@ -149,7 +149,7 @@ end
 # Train UDE
 println("Training UDE...")
 ude_model = bayesian_ude(t_train, Y_train, u0_train)
-ude_chain = sample(ude_model, NUTS(0.65), 200, discard_initial=20, progress=true)
+ude_chain = sample(ude_model, NUTS(0.65), 1000, discard_initial=20, progress=true)
 
 # Extract results
 ude_params = Array(ude_chain)

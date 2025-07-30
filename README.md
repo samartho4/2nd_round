@@ -28,14 +28,14 @@ This project demonstrates the successful discovery of hidden physical laws using
 | Symbolic Discovery | N/A | **0.9288** | N/A | N/A |
 
 **Key Findings:**
-- ** Physics Discovery**: UDE successfully discovered hidden physics with R² = **0.9288**
-- ** Trajectory Simulation**: Models evaluated by simulating full trajectories and comparing to ground truth
-- ** Numerical Stability**: All simulations use strict tolerances (abstol=1e-6, reltol=1e-6)
-- ** Evaluation**: 953 points across 3 scenarios
+- **Physics Discovery**: UDE successfully discovered hidden physics with R² = **0.9288**
+- **Trajectory Simulation**: Models evaluated by simulating full trajectories and comparing to ground truth
+- **Numerical Stability**: All simulations use strict tolerances (abstol=1e-6, reltol=1e-6)
+- **Evaluation**: 953 points across 3 scenarios
 
 ## Key Achievements
 
-###  **Primary Achievement: Physics Discovery**
+### **Primary Achievement: Physics Discovery**
 - **Successfully discovered hidden physical law** with R² = 0.9288
 - **Extracted symbolic relationship** from neural network component
 - **Validated physics discovery** through symbolic regression

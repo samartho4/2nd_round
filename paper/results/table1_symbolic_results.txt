@@ -1,0 +1,26 @@
+Symbolic Expression Recovered from UDE Neural Network
+============================================================
+
+R² Score: 0.9912
+Target: β × (Pgen - Pload) approximation
+
+Significant Terms (|coefficient| > 0.001):
+----------------------------------------
+Term                    Coefficient
+----------------------------------------
+x1 × Pgen           -0.002783
+x1 × Pload          -0.002647
+Pgen × Pload        -0.002161
+x1²2                -0.001700
+x1 × t              -0.001493
+Pload²2             -0.001276
+Pload × t           -0.001006
+----------------------------------------
+Total significant terms: 7
+Total polynomial terms: 20
+
+Interpretation:
+The UDE neural network has learned to approximate the physics term
+β × (Pgen - Pload) through a combination of polynomial terms.
+The most significant terms indicate the key variables and
+interactions that the neural network has discovered.

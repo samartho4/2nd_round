@@ -1,7 +1,7 @@
 # Fixed Training Script - Actually implements the 3 objectives
 using DifferentialEquations, Turing, CSV, DataFrames, BSON, Statistics, Random
-include(joinpath(@__DIR__, "..", "src", "Microgrid.jl"))
-include(joinpath(@__DIR__, "..", "src", "NeuralNODEArchitectures.jl"))
+include(joinpath(@__DIR__, "..", "src", "microgrid_system.jl"))
+include(joinpath(@__DIR__, "..", "src", "neural_ode_architectures.jl"))
 using .NeuralNODEArchitectures
 
 Random.seed!(42)
@@ -10,13 +10,13 @@ println("FIXED TRAINING - IMPLEMENTING THE 3 OBJECTIVES")
 println("="^60)
 
 # Load data
-df_train = CSV.read("data/train_improved.csv", DataFrame)
-df_test = CSV.read("data/test_improved.csv", DataFrame)
+df_train = CSV.read("data/training_dataset.csv", DataFrame)
+df_test = CSV.read("data/test_dataset.csv", DataFrame)
 
-# Use smaller subset for testing
-subset_size = 200
+# Use larger subset for better training, but not too large to avoid ODE solver issues
+subset_size = 1000
 df_train_subset = df_train[1:subset_size, :]
-df_test_subset = df_test[1:min(100, nrow(df_test)), :]
+df_test_subset = df_test[1:min(300, nrow(df_test)), :]
 
 t_train = Array(df_train_subset.time)
 Y_train = Matrix(df_train_subset[:, [:x1, :x2]])
@@ -43,7 +43,7 @@ println("-"^40)
     
     # ODE solution
     prob = ODEProblem(baseline_nn!, u0, (minimum(t), maximum(t)), θ)
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-5, reltol=1e-5, maxiters=5000)
+    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-3, reltol=1e-3, maxiters=10000)
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
@@ -59,7 +59,7 @@ end
 # Train Bayesian Neural ODE
 println("Training Bayesian Neural ODE...")
 bayesian_model = bayesian_neural_ode(t_train, Y_train, u0_train)
-bayesian_chain = sample(bayesian_model, NUTS(0.65), 50, discard_initial=10, progress=true)
+bayesian_chain = sample(bayesian_model, NUTS(0.65), 200, discard_initial=20, progress=true)
 
 # Extract results
 bayesian_params = Array(bayesian_chain)[:, 1:10]
@@ -133,7 +133,7 @@ end
     
     # UDE solution
     prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-5, reltol=1e-5, maxiters=5000)
+    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-3, reltol=1e-3, maxiters=10000)
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
@@ -149,7 +149,7 @@ end
 # Train UDE
 println("Training UDE...")
 ude_model = bayesian_ude(t_train, Y_train, u0_train)
-ude_chain = sample(ude_model, NUTS(0.65), 50, discard_initial=10, progress=true)
+ude_chain = sample(ude_model, NUTS(0.65), 200, discard_initial=20, progress=true)
 
 # Extract results
 ude_params = Array(ude_chain)
@@ -173,29 +173,35 @@ BSON.@save "checkpoints/ude_results_fixed.bson" ude_results
 println("✅ UDE trained and saved")
 
 # ============================================================================
-# OBJECTIVE 3: Symbolic Extraction (Extract symbolic form)
+# OBJECTIVE 3: Symbolic Extraction (Extract symbolic form from UDE neural network)
 # ============================================================================
-println("\n3. IMPLEMENTING SYMBOLIC EXTRACTION")
+println("\n3. IMPLEMENTING SYMBOLIC EXTRACTION FROM UDE NEURAL NETWORK")
 println("-"^40)
 
-# Use the trained neural network parameters to extract symbolic form
-println("Extracting symbolic form from trained neural network...")
+# Use the trained UDE neural network parameters to extract symbolic form
+println("Extracting symbolic form from UDE neural network component...")
 
-# Get best parameters from Bayesian model
-best_params = bayesian_results[:params_mean]
+# Get neural network parameters from UDE model
+ude_nn_params = ude_results[:neural_params_mean]
 
 # Generate data points for symbolic regression
-n_points = 100
-x1_range = range(-10.0, 10.0, length=10)
-x2_range = range(-10.0, 10.0, length=10)
-t_range = range(0.0, 24.0, length=10)
+n_points = 200
+x1_range = range(-10.0, 10.0, length=8)
+x2_range = range(-10.0, 10.0, length=8)
+Pgen_range = range(0.0, 1.0, length=5)
+Pload_range = range(0.4, 0.8, length=5)
+t_range = range(0.0, 24.0, length=5)
 
-# Generate grid of points
+# Generate grid of points for UDE neural network inputs
 symbolic_data = []
 for x1 in x1_range
     for x2 in x2_range
-        for t in t_range
-            push!(symbolic_data, [x1, x2, t])
+        for Pgen in Pgen_range
+            for Pload in Pload_range
+                for t in t_range
+                    push!(symbolic_data, [x1, x2, Pgen, Pload, t])
+                end
+            end
         end
     end
 end
@@ -203,62 +209,65 @@ end
 # Limit to reasonable number
 symbolic_data = symbolic_data[1:min(n_points, length(symbolic_data))]
 
-# Evaluate neural network on these points
+# Evaluate UDE neural network on these points
 nn_outputs = []
 for point in symbolic_data
-    x1, x2, t = point
-    dx = zeros(2)
-    baseline_nn!(dx, [x1, x2], best_params, t)
-    push!(nn_outputs, dx)
+    x1, x2, Pgen, Pload, t = point
+    nn_output = simple_ude_nn([x1, x2, Pgen, Pload, t], ude_nn_params)
+    push!(nn_outputs, Float64(nn_output))
 end
 
-# Simple polynomial regression for symbolic extraction
-println("Performing symbolic regression...")
+# Polynomial regression for symbolic extraction of UDE neural network
+println("Performing symbolic regression on UDE neural network...")
 
-# Create feature matrix for polynomial regression
-function create_features(x1, x2, t)
-    return [x1, x2, t, x1^2, x2^2, t^2, x1*x2, x1*t, x2*t]
+# Create feature matrix for polynomial regression with 5 inputs
+function create_ude_features(x1, x2, Pgen, Pload, t)
+    return [x1, x2, Pgen, Pload, t, 
+            x1^2, x2^2, Pgen^2, Pload^2, t^2,
+            x1*x2, x1*Pgen, x1*Pload, x1*t,
+            x2*Pgen, x2*Pload, x2*t,
+            Pgen*Pload, Pgen*t, Pload*t]
 end
 
 # Create feature matrix
 feature_matrix = []
 for (i, point) in enumerate(symbolic_data)
-    features = create_features(point[1], point[2], point[3])
+    features = create_ude_features(point[1], point[2], point[3], point[4], point[5])
     push!(feature_matrix, features)
 end
 
 feature_matrix = hcat(feature_matrix...)'
+feature_matrix = convert(Matrix{Float64}, feature_matrix)
 
-# Fit for each output dimension
-coefficients_dx1 = feature_matrix \ [output[1] for output in nn_outputs]
-coefficients_dx2 = feature_matrix \ [output[2] for output in nn_outputs]
+# Fit polynomial regression to UDE neural network output
+nn_outputs = convert(Vector{Float64}, nn_outputs)
+coefficients_ude_nn = feature_matrix \ nn_outputs
 
 # Calculate R² for symbolic extraction
-pred_dx1 = feature_matrix * coefficients_dx1
-pred_dx2 = feature_matrix * coefficients_dx2
+pred_nn_output = feature_matrix * coefficients_ude_nn
+actual_nn_output = nn_outputs
 
-actual_dx1 = [output[1] for output in nn_outputs]
-actual_dx2 = [output[2] for output in nn_outputs]
+r2_ude_nn = 1 - sum((pred_nn_output .- actual_nn_output).^2) / sum((actual_nn_output .- mean(actual_nn_output)).^2)
 
-r2_dx1 = 1 - sum((pred_dx1 .- actual_dx1).^2) / sum((actual_dx1 .- mean(actual_dx1)).^2)
-r2_dx2 = 1 - sum((pred_dx2 .- actual_dx2).^2) / sum((actual_dx2 .- mean(actual_dx2)).^2)
-
-# Save symbolic extraction results
-symbolic_results = Dict(
-    :coefficients_dx1 => coefficients_dx1,
-    :coefficients_dx2 => coefficients_dx2,
-    :r2_dx1 => r2_dx1,
-    :r2_dx2 => r2_dx2,
-    :avg_r2 => (r2_dx1 + r2_dx2) / 2,
-    :feature_names => ["x1", "x2", "t", "x1^2", "x2^2", "t^2", "x1*x2", "x1*t", "x2*t"],
-    :model_type => "symbolic_extraction"
+# Save symbolic extraction results for UDE neural network
+symbolic_ude_results = Dict(
+    :coefficients_ude_nn => coefficients_ude_nn,
+    :r2_ude_nn => r2_ude_nn,
+    :feature_names => ["x1", "x2", "Pgen", "Pload", "t", 
+                      "x1^2", "x2^2", "Pgen^2", "Pload^2", "t^2",
+                      "x1*x2", "x1*Pgen", "x1*Pload", "x1*t",
+                      "x2*Pgen", "x2*Pload", "x2*t",
+                      "Pgen*Pload", "Pgen*t", "Pload*t"],
+    :model_type => "symbolic_ude_extraction",
+    :ude_nn_params => ude_nn_params,
+    :n_features => 20
 )
 
-BSON.@save "checkpoints/symbolic_extraction_results_fixed.bson" symbolic_results
-println("✅ Symbolic extraction completed")
-println("   - R² for dx1: $(round(r2_dx1, digits=4))")
-println("   - R² for dx2: $(round(r2_dx2, digits=4))")
-println("   - Average R²: $(round((r2_dx1 + r2_dx2)/2, digits=4))")
+BSON.@save "checkpoints/symbolic_ude_extraction.bson" symbolic_ude_results
+println("✅ Symbolic extraction from UDE neural network completed")
+println("   - R² for UDE neural network: $(round(r2_ude_nn, digits=4))")
+println("   - Features: $(length(symbolic_ude_results[:feature_names])) polynomial terms")
+println("   - Target: β * (Pgen - Pload) approximation")
 
 # ============================================================================
 # FINAL RESULTS SUMMARY
@@ -278,9 +287,10 @@ println("   - Physics parameters: ηin, ηout, α, β, γ (5 parameters)")
 println("   - Neural parameters: 15 additional parameters")
 println("   - Replaced nonlinear term β·(Pgen-Pload) with neural network")
 
-println("\n✅ OBJECTIVE 3: Symbolic Extraction")
-println("   - Extracted symbolic form from neural network")
-println("   - Polynomial regression: 9 features")
-println("   - R² = $(round((r2_dx1 + r2_dx2)/2, digits=4))")
+println("\n✅ OBJECTIVE 3: Symbolic Extraction from UDE Neural Network")
+println("   - Extracted symbolic form from UDE neural network component")
+println("   - Polynomial regression: 20 features (x1, x2, Pgen, Pload, t)")
+println("   - R² = $(round(r2_ude_nn, digits=4))")
+println("   - Target: β * (Pgen - Pload) approximation")
 
 println("\nALL 3 OBJECTIVES SUCCESSFULLY IMPLEMENTED! 🎯") 

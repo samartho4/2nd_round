@@ -31,8 +31,11 @@ This project compares different approaches for modeling microgrid dynamics:
 # Setup environment
 julia --project=. -e "using Pkg; Pkg.instantiate()"
 
-# Run main analysis
-julia --project=. scripts/run_main_analysis.jl
+# Train models
+julia --project=. scripts/train.jl
+
+# Evaluate and analyze results
+julia --project=. scripts/evaluate.jl
 
 # View results
 open paper/figures/model_performance_comparison.png
@@ -42,13 +45,13 @@ open paper/figures/model_performance_comparison.png
 
 ```
 ├── scripts/
-│   ├── run_main_analysis.jl    # Main pipeline
-│   ├── train_models.jl         # Model training
-│   ├── analyze_results.jl      # Analysis & figures
-│   └── generate_training_data.jl # Data generation
+│   ├── train.jl               # Model training pipeline
+│   ├── evaluate.jl            # Evaluation and analysis
+│   ├── generate_dataset.jl    # Data generation
+│   └── archive/               # Archived scripts
 ├── src/
-│   ├── Microgrid.jl           # Physics model
-│   └── NeuralNODEArchitectures.jl # Neural networks
+│   ├── microgrid_system.jl    # Physics model
+│   └── neural_ode_architectures.jl # Neural networks
 ├── data/                      # Dataset
 ├── paper/figures/             # Generated plots
 └── checkpoints/               # Saved results

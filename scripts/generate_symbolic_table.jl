@@ -62,7 +62,12 @@ println("\n" * "="^50)
 println("PHYSICS DISCOVERY VALIDATION")
 println("="^50)
 
-# Create the analysis text using a different approach
+# Check if symbolic extraction was successful
+r2_score = symbolic_ude_results[:r2_ude_nn]
+extraction_successful = !isnan(r2_score) && r2_score > 0.5
+coefficients_significant = any(abs.(coefficients) .> 0.01)
+
+# Create the analysis text with correct interpretation
 output_lines = String[]
 
 push!(output_lines, "SYMBOLIC EXTRACTION RESULTS - PHYSICS DISCOVERY VALIDATION")
@@ -78,8 +83,8 @@ push!(output_lines, "LEARNED COEFFICIENTS ANALYSIS")
 push!(output_lines, "-"^30)
 push!(output_lines, "Ground Truth: β = $(β_true)")
 push!(output_lines, "")
-push!(output_lines, "$(@sprintf("Learned Coefficient for Pgen:  %8.4f (approximates β = %.1f)", pgen_coeff, β_true))")
-push!(output_lines, "$(@sprintf("Learned Coefficient for Pload: %8.4f (approximates -β = %.1f)", pload_coeff, -β_true))")
+push!(output_lines, "$(@sprintf("Learned Coefficient for Pgen:  %8.4f", pgen_coeff))")
+push!(output_lines, "$(@sprintf("Learned Coefficient for Pload: %8.4f", pload_coeff))")
 push!(output_lines, "")
 push!(output_lines, "ERROR ANALYSIS")
 push!(output_lines, "-"^15)
@@ -97,11 +102,22 @@ end
 push!(output_lines, "")
 push!(output_lines, "PHYSICS DISCOVERY VALIDATION")
 push!(output_lines, "-"^30)
-push!(output_lines, "✅ The UDE neural network successfully discovered the hidden physical law:")
-push!(output_lines, "   - It learned that the nonlinear term is approximately β × (Pgen - Pload)")
-push!(output_lines, "   - Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≈ β = $(β_true)")
-push!(output_lines, "   - Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≈ -β = $(-β_true)")
-push!(output_lines, "   - The learned coefficients closely approximate the true physics parameters")
+
+# Provide accurate interpretation based on actual results
+if extraction_successful && coefficients_significant
+    push!(output_lines, "✅ The UDE neural network successfully discovered the hidden physical law:")
+    push!(output_lines, "   - It learned that the nonlinear term is approximately β × (Pgen - Pload)")
+    push!(output_lines, "   - Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≈ β = $(β_true)")
+    push!(output_lines, "   - Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≈ -β = $(-β_true)")
+    push!(output_lines, "   - The learned coefficients closely approximate the true physics parameters")
+else
+    push!(output_lines, "❌ The UDE neural network did NOT successfully discover the hidden physical law:")
+    push!(output_lines, "   - Symbolic extraction failed (R² = $(round(r2_score, digits=4)))")
+    push!(output_lines, "   - All coefficients are approximately zero")
+    push!(output_lines, "   - The neural network did not learn the expected β × (Pgen - Pload) pattern")
+    push!(output_lines, "   - This indicates the UDE training may need improvement")
+end
+
 push!(output_lines, "")
 push!(output_lines, "COMPLETE COEFFICIENT TABLE")
 push!(output_lines, "-"^25)
@@ -115,19 +131,31 @@ for (i, (coeff, feature)) in enumerate(zip(coefficients, feature_names))
     push!(output_lines, "$(@sprintf("%10d | %8.4f | %s", i, coeff, feature))")
 end
 
-# Add summary
+# Add summary with correct interpretation
 push!(output_lines, "")
 push!(output_lines, "SUMMARY")
 push!(output_lines, "-------")
-push!(output_lines, "The symbolic extraction from the UDE neural network successfully validates the physics discovery:")
-push!(output_lines, "")
-push!(output_lines, "1. The neural network learned coefficients that closely approximate the true physics parameters")
-push!(output_lines, "2. Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≈ β = $(β_true) (Error: $(@sprintf("%.4f", pgen_error)))")
-push!(output_lines, "3. Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≈ -β = $(-β_true) (Error: $(@sprintf("%.4f", pload_error)))")
-push!(output_lines, "4. R² = $(round(symbolic_ude_results[:r2_ude_nn], digits=4)) indicates excellent approximation")
-push!(output_lines, "")
-push!(output_lines, "This demonstrates that the hybrid physics-informed UDE approach can successfully discover")
-push!(output_lines, "hidden physical laws from data, validating the core contribution of this research.")
+if extraction_successful && coefficients_significant
+    push!(output_lines, "The symbolic extraction from the UDE neural network successfully validates the physics discovery:")
+    push!(output_lines, "")
+    push!(output_lines, "1. The neural network learned coefficients that closely approximate the true physics parameters")
+    push!(output_lines, "2. Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≈ β = $(β_true) (Error: $(@sprintf("%.4f", pgen_error)))")
+    push!(output_lines, "3. Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≈ -β = $(-β_true) (Error: $(@sprintf("%.4f", pload_error)))")
+    push!(output_lines, "4. R² = $(round(symbolic_ude_results[:r2_ude_nn], digits=4)) indicates excellent approximation")
+    push!(output_lines, "")
+    push!(output_lines, "This demonstrates that the hybrid physics-informed UDE approach can successfully discover")
+    push!(output_lines, "hidden physical laws from data, validating the core contribution of this research.")
+else
+    push!(output_lines, "The symbolic extraction from the UDE neural network did NOT validate the physics discovery:")
+    push!(output_lines, "")
+    push!(output_lines, "1. The neural network failed to learn meaningful coefficients (all ≈ 0)")
+    push!(output_lines, "2. Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≠ β = $(β_true) (Error: $(@sprintf("%.4f", pgen_error)))")
+    push!(output_lines, "3. Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≠ -β = $(-β_true) (Error: $(@sprintf("%.4f", pload_error)))")
+    push!(output_lines, "4. R² = $(round(symbolic_ude_results[:r2_ude_nn], digits=4)) indicates poor approximation")
+    push!(output_lines, "")
+    push!(output_lines, "This indicates that the UDE training needs improvement to successfully discover")
+    push!(output_lines, "hidden physical laws from data.")
+end
 
 # Save the analysis
 output_file = "paper/results/table1_symbolic_results.txt"
@@ -143,12 +171,22 @@ println("✅ Symbolic results table saved: $output_file")
 println("\n" * "="^50)
 println("KEY VALIDATION RESULTS")
 println("="^50)
-println("✅ Physics Discovery Validated:")
-println("   - Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≈ β = $(β_true)")
-println("   - Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≈ -β = $(-β_true)")
-println("   - R² score: $(round(symbolic_ude_results[:r2_ude_nn], digits=4))")
-println("   - Error Pgen: $(@sprintf("%.4f", pgen_error))")
-println("   - Error Pload: $(@sprintf("%.4f", pload_error))")
+if extraction_successful && coefficients_significant
+    println("✅ Physics Discovery Validated:")
+    println("   - Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≈ β = $(β_true)")
+    println("   - Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≈ -β = $(-β_true)")
+    println("   - R² score: $(round(symbolic_ude_results[:r2_ude_nn], digits=4))")
+    println("   - Error Pgen: $(@sprintf("%.4f", pgen_error))")
+    println("   - Error Pload: $(@sprintf("%.4f", pload_error))")
+    println("\n✅ The symbolic extraction validates the physics discovery!")
+else
+    println("❌ Physics Discovery NOT Validated:")
+    println("   - Pgen coefficient: $(@sprintf("%.4f", pgen_coeff)) ≠ β = $(β_true)")
+    println("   - Pload coefficient: $(@sprintf("%.4f", pload_coeff)) ≠ -β = $(-β_true)")
+    println("   - R² score: $(round(symbolic_ude_results[:r2_ude_nn], digits=4))")
+    println("   - Error Pgen: $(@sprintf("%.4f", pgen_error))")
+    println("   - Error Pload: $(@sprintf("%.4f", pload_error))")
+    println("\n❌ The symbolic extraction failed to validate the physics discovery!")
+end
 
-println("\n✅ Comprehensive analysis saved to: $output_file")
-println("The symbolic extraction validates the physics discovery!") 
+println("\n✅ Comprehensive analysis saved to: $output_file") 

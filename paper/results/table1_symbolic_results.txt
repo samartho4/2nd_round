@@ -11,8 +11,8 @@ LEARNED COEFFICIENTS ANALYSIS
 ------------------------------
 Ground Truth: β = 1.2
 
-Learned Coefficient for Pgen:    0.0000 (approximates β = 1.2)
-Learned Coefficient for Pload:   0.0000 (approximates -β = -1.2)
+Learned Coefficient for Pgen:    0.0000
+Learned Coefficient for Pload:   0.0000
 
 ERROR ANALYSIS
 ---------------
@@ -34,11 +34,11 @@ MOST SIGNIFICANT COEFFICIENTS
 
 PHYSICS DISCOVERY VALIDATION
 ------------------------------
-✅ The UDE neural network successfully discovered the hidden physical law:
-   - It learned that the nonlinear term is approximately β × (Pgen - Pload)
-   - Pgen coefficient: 0.0000 ≈ β = 1.2
-   - Pload coefficient: 0.0000 ≈ -β = -1.2
-   - The learned coefficients closely approximate the true physics parameters
+❌ The UDE neural network did NOT successfully discover the hidden physical law:
+   - Symbolic extraction failed (R² = NaN)
+   - All coefficients are approximately zero
+   - The neural network did not learn the expected β × (Pgen - Pload) pattern
+   - This indicates the UDE training may need improvement
 
 COMPLETE COEFFICIENT TABLE
 -------------------------
@@ -68,12 +68,12 @@ Coefficient | Value    | Feature
 
 SUMMARY
 -------
-The symbolic extraction from the UDE neural network successfully validates the physics discovery:
+The symbolic extraction from the UDE neural network did NOT validate the physics discovery:
 
-1. The neural network learned coefficients that closely approximate the true physics parameters
-2. Pgen coefficient: 0.0000 ≈ β = 1.2 (Error: 1.2000)
-3. Pload coefficient: 0.0000 ≈ -β = -1.2 (Error: 1.2000)
-4. R² = NaN indicates excellent approximation
+1. The neural network failed to learn meaningful coefficients (all ≈ 0)
+2. Pgen coefficient: 0.0000 ≠ β = 1.2 (Error: 1.2000)
+3. Pload coefficient: 0.0000 ≠ -β = -1.2 (Error: 1.2000)
+4. R² = NaN indicates poor approximation
 
-This demonstrates that the hybrid physics-informed UDE approach can successfully discover
-hidden physical laws from data, validating the core contribution of this research.
+This indicates that the UDE training needs improvement to successfully discover
+hidden physical laws from data.

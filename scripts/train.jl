@@ -35,29 +35,31 @@ println("\n1. IMPLEMENTING BAYESIAN NEURAL ODE")
 println("-"^40)
 
 @model function bayesian_neural_ode(t, Y, u0)
-    # Observation noise
+    
+    # Define priors for noise (σ) and network weights (θ)    Observation noise
+    
     σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
     
-    # Neural network parameters (10 parameters)
+    # Neural network parameters (10 parameters)    
     θ ~ MvNormal(zeros(10), 0.3)
     
-    # ODE solution with strict tolerances for numerical stability
+    # Define the ODE problem using the neural network    ODE solution with strict tolerances for numerical stability
     prob = ODEProblem(baseline_nn!, u0, (minimum(t), maximum(t)), θ)
     
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
+    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-8, reltol=1e-8, maxiters=10000)
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
         return
     end
-    
+    # Compare the ODE solution to the real data
     Ŷ = hcat(sol.u...)'
     for i in 1:length(t)
         Y[i, :] ~ MvNormal(Ŷ[i, :], σ^2 * I(2))
     end
 end
 
-# Train Bayesian Neural ODE
+# NUTS to find not just one "best" set of weights, but a whole distribution of plausible weights that fit the data well.       Train Bayesian Neural ODE   
 println("Training Bayesian Neural ODE...")
 bayesian_model = bayesian_neural_ode(t_train, Y_train, u0_train)
 
@@ -91,6 +93,7 @@ println("-"^40)
 
 # UDE dynamics: physics + neural network for nonlinear term
 function ude_dynamics!(dx, x, p, t)
+    # Unpack known physics parameters and unknown nn_params
     x1, x2 = x
     ηin, ηout, α, β, γ = p[1:5]  # Physics parameters
     nn_params = p[6:end]          # Neural parameters (15)
@@ -100,12 +103,12 @@ function ude_dynamics!(dx, x, p, t)
     Pgen = max(0, sin((t - 6) * π / 12))
     Pload = 0.6 + 0.2 * sin(t * π / 12)
     
-    # Energy storage dynamics (physics only)
+    # Part 1: The physics we KNOW    Energy storage dynamics (physics only)
     Pin = u > 0 ? ηin * u : (1 / ηout) * u
     d = Pload
     dx[1] = Pin - d
     
-    # Grid dynamics: physics + neural network for nonlinear term
+    # Part 2: The physics we want to DISCOVER  Grid dynamics: physics + neural network for nonlinear term
     # Original: dx[2] = -α * x2 + β * (Pgen - Pload) + γ * x1
     # UDE: Replace β * (Pgen - Pload) with neural network
     nn_output = simple_ude_nn([x1, x2, Pgen, Pload, t], nn_params)
@@ -136,23 +139,23 @@ end
     # Combine physics + neural parameters
     p = [ηin, ηout, α, β, γ, nn_params...]
     
-    # UDE solution with strict tolerances for numerical stability
+    # Solve the ODE using our hybrid ude_dynamics! function  UDE solution with strict tolerances for numerical stability
     prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
     
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-6, reltol=1e-6, maxiters=10000)
+    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-8, reltol=1e-8, maxiters=10000)
     
     if sol.retcode != :Success || length(sol) != length(t)
         Turing.@addlogprob! -Inf
         return
     end
-    
+    # ... (Likelihood is the same) ...
     Ŷ = hcat(sol.u...)'
     for i in 1:length(t)
         Y[i, :] ~ MvNormal(Ŷ[i, :], σ^2 * I(2))
     end
 end
 
-# Train UDE
+# When we train this model, we are asking Turing to find the best values for both the physical parameters (like α) and NN weights at the same time. Train UDE
 println("Training UDE...")
 ude_model = bayesian_ude(t_train, Y_train, u0_train)
 
@@ -191,7 +194,7 @@ println("-"^40)
 # Use the trained UDE neural network parameters to extract symbolic form
 println("Extracting symbolic form from UDE neural network component...")
 
-# Get neural network parameters from UDE model
+# // Get the best-fit parameters for the UDE's neural network
 ude_nn_params = ude_results[:neural_params_mean]
 
 # Generate data points for symbolic regression
@@ -202,7 +205,7 @@ Pgen_range = range(0.0, 1.0, length=5)
 Pload_range = range(0.4, 0.8, length=5)
 t_range = range(0.0, 24.0, length=5)
 
-# Generate grid of points for UDE neural network inputs
+# Create a grid of possible inputs (x1, x2, Pgen, Pload, t)
 symbolic_data = []
 for x1 in x1_range
     for x2 in x2_range
@@ -219,7 +222,7 @@ end
 # Limit to reasonable number
 symbolic_data = symbolic_data[1:min(n_points, length(symbolic_data))]
 
-# Evaluate UDE neural network on these points
+# Get the neural network's output for each input point
 nn_outputs = []
 for point in symbolic_data
     x1, x2, Pgen, Pload, t = point
@@ -230,7 +233,7 @@ end
 # Polynomial regression for symbolic extraction of UDE neural network
 println("Performing symbolic regression on UDE neural network...")
 
-# Create feature matrix for polynomial regression with 5 inputs
+# Create a matrix of simple mathematical terms (x1, x2, Pgen*Pload, etc.)
 function create_ude_features(x1, x2, Pgen, Pload, t)
     return [x1, x2, Pgen, Pload, t, 
             x1^2, x2^2, Pgen^2, Pload^2, t^2,

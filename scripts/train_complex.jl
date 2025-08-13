@@ -4,6 +4,9 @@ include(joinpath(@__DIR__, "..", "src", "microgrid_system.jl"))
 include(joinpath(@__DIR__, "..", "src", "neural_ode_architectures.jl"))
 using .NeuralNODEArchitectures
 
+# Try to import ADVI/vi utilities if available
+import Turing: ADVI, vi
+
 Random.seed!(42)
 
 println("FIXED TRAINING - IMPLEMENTING THE 3 OBJECTIVES")
@@ -127,14 +130,33 @@ println("Training Bayesian Neural ODE...")
 bayesian_model = bayesian_neural_ode(t_train, Y_train, u0_train)
 
 # Initialization: use tuned scheme if available
-init_scheme = isnothing(best_cfg) ? "zeros" : String(best_cfg[:init_scheme])
+init_scheme = isnothing(best_cfg) ? "normal" : String(best_cfg[:init_scheme])
 init_scale  = isnothing(best_cfg) ? 0.1      : Float64(best_cfg[:init_scale])
 
 initial_params = (σ = 0.1, θ = initial_theta(init_scheme, init_scale, num_params))
 
-target_accept = isnothing(best_cfg) ? 0.65 : Float64(best_cfg[:nuts_target])
+# Optional ADVI warm-start
+advi_iters = parse(Int, get(ENV, "ADVI_ITERS", string(cfg(2000, :train, :advi_iters))))
+try
+    println("Running ADVI warm-start for Bayesian Neural ODE (iters=$(advi_iters))...")
+    q = vi(bayesian_model, ADVI(advi_iters))
+    if hasproperty(q, :posterior) && hasproperty(q.posterior, :μ)
+        μ = q.posterior.μ
+        if length(μ) == num_params + 1
+            initial_params = (σ = max(0.05, abs(μ[end])), θ = μ[1:num_params])
+        end
+    end
+catch e
+    println("ADVI warm-start unavailable or failed: $(e). Proceeding with random init.")
+end
 
-bayesian_chain = sample(bayesian_model, NUTS(target_accept), TRAIN_SAMPLES, discard_initial=TRAIN_WARMUP, progress=true, initial_params=initial_params)
+# Tuned NUTS parameters
+nuts_target = isnothing(best_cfg) ? 0.85 : Float64(best_cfg[:nuts_target])
+max_depth = parse(Int, get(ENV, "NUTS_MAX_DEPTH", string(cfg(10, :mcmc, :max_depth))))
+println("Using NUTS target_accept=$(nuts_target), max_depth=$(max_depth)")
+
+bayesian_chain = sample(bayesian_model, NUTS(nuts_target), TRAIN_SAMPLES,
+                        discard_initial=TRAIN_WARMUP, progress=true, initial_params=initial_params)
 
 # Extract results
 bayesian_params = Array(bayesian_chain)[:, 1:num_params]
@@ -162,26 +184,27 @@ println("-"^40)
 
 # UDE dynamics: physics + neural network for nonlinear term
 function ude_dynamics!(dx, x, p, t)
-    # Unpack known physics parameters and unknown nn_params
-    x1, x2 = x
-    ηin, ηout, α, β, γ = p[1:5]  # Physics parameters
-    nn_params = p[6:end]          # Neural parameters (15)
-    
-    # Control and power inputs (same as original)
-    u = t % 24 < 6 ? 1.0 : (t % 24 < 18 ? 0.0 : -0.8)
-    Pgen = max(0, sin((t - 6) * π / 12))
-    Pload = 0.6 + 0.2 * sin(t * π / 12)
-    
-    # Part 1: The physics we KNOW    Energy storage dynamics (physics only)
-    Pin = u > 0 ? ηin * u : (1 / ηout) * u
-    d = Pload
-    dx[1] = Pin - d
-    
-    # Part 2: The physics we want to DISCOVER  Grid dynamics: physics + neural network for nonlinear term
-    # Original: dx[2] = -α * x2 + β * (Pgen - Pload) + γ * x1
-    # UDE: Replace β * (Pgen - Pload) with neural network
-    nn_output = simple_ude_nn([x1, x2, Pgen, Pload, t], nn_params)
-    dx[2] = -α * x2 + nn_output + γ * x1
+	# Unpack known physics parameters and unknown nn_params
+	x1, x2 = x
+	ηin, ηout, α, β, γ = p[1:5]  # Physics parameters
+	nn_params = p[6:end]          # Neural parameters (15)
+	
+	# Control and power inputs (same as original)
+	u = t % 24 < 6 ? 1.0 : (t % 24 < 18 ? 0.0 : -0.8)
+	Pgen = max(0, sin((t - 6) * π / 12))
+	Pload = 0.6 + 0.2 * sin(t * π / 12)
+	
+	# Part 1: The physics we KNOW    Energy storage dynamics (physics only)
+	Pin = u > 0 ? ηin * u : (1 / ηout) * u
+	d = Pload
+	dx[1] = Pin - d
+	
+	# Part 2: The physics we want to DISCOVER  Grid dynamics: physics + neural network for nonlinear term
+	# Original: dx[2] = -α * x2 + β * (Pgen - Pload) + γ * x1
+	# UDE: Replace β * (Pgen - Pload) with neural network
+	nn_output = simple_ude_nn([x1, x2, Pgen, Pload, t], nn_params)
+	nn_output = clamp(nn_output, -5.0, 5.0)
+	dx[2] = -α * x2 + nn_output + γ * x1
 end
 
 function simple_ude_nn(input, params)
@@ -192,36 +215,36 @@ function simple_ude_nn(input, params)
 end
 
 @model function bayesian_ude(t, Y, u0)
-    # Observation noise
-    σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
-    
-    # Physics parameters (5 parameters)
-    ηin ~ truncated(Normal(0.9, 0.1), 0.5, 1.0)
-    ηout ~ truncated(Normal(0.9, 0.1), 0.5, 1.0)
-    α ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
-    β ~ truncated(Normal(1.0, 0.2), 0.5, 2.0)
-    γ ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
-    
-    # Neural network parameters (15 parameters)
-    nn_params ~ MvNormal(zeros(15), 0.1)
-    
-    # Combine physics + neural parameters
-    p = [ηin, ηout, α, β, γ, nn_params...]
-    
-    # Solve the ODE using our hybrid ude_dynamics! function  UDE solution with strict tolerances for numerical stability
-    prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
-    
-    sol = solve(prob, Tsit5(), saveat=t, abstol=1e-8, reltol=1e-8, maxiters=10000)
-    
-    if sol.retcode != :Success || length(sol) != length(t)
-        Turing.@addlogprob! -Inf
-        return
-    end
-    # ... (Likelihood is the same) ...
-    Ŷ = hcat(sol.u...)'
-    for i in 1:length(t)
-        Y[i, :] ~ MvNormal(Ŷ[i, :], σ^2 * I(2))
-    end
+	# Observation noise
+	σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
+	
+	# Physics parameters (5 parameters)
+	ηin ~ truncated(Normal(0.9, 0.1), 0.5, 1.0)
+	ηout ~ truncated(Normal(0.9, 0.1), 0.5, 1.0)
+	α ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
+	β ~ truncated(Normal(1.0, 0.2), 0.5, 2.0)
+	γ ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
+	
+	# Neural network parameters (15 parameters)
+	nn_params ~ MvNormal(zeros(15), 0.05)
+	
+	# Combine physics + neural parameters
+	p = [ηin, ηout, α, β, γ, nn_params...]
+	
+	# Solve the ODE using our hybrid ude_dynamics! function  UDE solution with strict tolerances for numerical stability
+	prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
+	
+	sol = solve(prob, Tsit5(), saveat=t, abstol=1e-8, reltol=1e-8, maxiters=10000)
+	
+	if sol.retcode != :Success || length(sol) != length(t)
+		Turing.@addlogprob! -Inf
+		return
+	end
+	# ... (Likelihood is the same) ...
+	Ŷ = hcat(sol.u...)'
+	for i in 1:length(t)
+		Y[i, :] ~ MvNormal(Ŷ[i, :], σ^2 * I(2))
+	end
 end
 
 # When we train this model, we are asking Turing to find the best values for both the physical parameters (like α) and NN weights at the same time. Train UDE
@@ -229,9 +252,25 @@ println("Training UDE...")
 ude_model = bayesian_ude(t_train, Y_train, u0_train)
 
 # Provide explicit initial parameters for better stability
-ude_initial_params = (σ = 0.1, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = zeros(15))
+ude_initial_params = (σ = 0.1, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = initial_theta("normal", 0.1, 15))
 
-ude_chain = sample(ude_model, NUTS(0.65), 1000, discard_initial=20, progress=true, initial_params=ude_initial_params)
+# Optional ADVI warm-start for UDE
+try
+    println("Running ADVI warm-start for UDE (iters=$(advi_iters))...")
+    q_u = vi(ude_model, ADVI(advi_iters))
+    if hasproperty(q_u, :posterior) && hasproperty(q_u.posterior, :μ)
+        μu = q_u.posterior.μ
+        if length(μu) >= 21
+            nnμ = μu[6:20]
+            ude_initial_params = (σ = max(0.05, abs(μu[1])), ηin = μu[2], ηout = μu[3], α = μu[4], β = μu[5], γ = μu[6], nn_params = nnμ)
+        end
+    end
+catch e
+    println("ADVI warm-start for UDE unavailable or failed: $(e). Proceeding with random init.")
+end
+
+ude_chain = sample(ude_model, NUTS(nuts_target), 1000,
+                   discard_initial=TRAIN_WARMUP, progress=true, initial_params=ude_initial_params)
 
 # Extract results
 ude_params = Array(ude_chain)
@@ -355,21 +394,52 @@ ss_res = sum((y .- ŷ).^2)
 ss_tot = sum((y .- mean(y)).^2)
 R2 = 1 - ss_res / ss_tot
 
-# Save symbolic extraction results for UDE neural network
-symbolic_ude_results = Dict(
-    :coeffs => β,
-    :intercept => β0,
-    :feature_names => feature_names,
-    :R2 => R2,
-    :n_points => n_points,
-    :standardization => Dict(:mu => vec(μΦ), :sigma => vec(σΦ), :mu_y => μy, :sigma_y => σy),
-    :model_type => "symbolic_ude_extraction",
-)
-BSON.@save "checkpoints/symbolic_ude_extraction.bson" symbolic_ude_results
-println("✅ Symbolic extraction from UDE neural network completed")
-println("   - R² for UDE neural network: $(R2)")
-println("   - Features: $(length(symbolic_ude_results[:feature_names])) polynomial terms")
-println("   - Target: β * (Pgen - Pload) approximation")
+# Dead-network detection and gating symbolic extraction
+function nn_output_stats(nn_params_vec::AbstractVector)
+	x1_range = range(-1.0, 1.0, length=5)
+	x2_range = range(-1.0, 1.0, length=5)
+	Pgen_range = range(0.0, 1.0, length=5)
+	Pload_range = range(0.4, 0.8, length=5)
+	t_range = range(0.0, 24.0, length=5)
+	vals = Float64[]
+	for x1 in x1_range, x2 in x2_range, Pgen in Pgen_range, Pload in Pload_range, t in t_range
+		push!(vals, Float64(simple_ude_nn([x1, x2, Pgen, Pload, t], nn_params_vec)))
+	end
+	return (mean=mean(vals), std=std(vals), maxabs=maximum(abs.(vals)))
+end
+
+nn_mean_std = nn_output_stats(ude_results[:neural_params_mean])
+println("Neural component output stats on grid: mean=$(round(nn_mean_std.mean, digits=4)), std=$(round(nn_mean_std.std, digits=4)), max|.|=$(round(nn_mean_std.maxabs, digits=4))")
+
+is_dead_nn = (nn_mean_std.std < 1e-3) || (ude_results[:neural_params_std] |> x->mean(abs.(x)) < 1e-4)
+
+if is_dead_nn
+	println("⚠️ Neural network appears dead/not learning (low output variance). Skipping symbolic extraction.")
+else
+	# Predictions and R² in original scale
+	ŷ = Φ * β .+ β0
+	ss_res = sum((y .- ŷ).^2)
+	ss_tot = sum((y .- mean(y)).^2)
+	R2 = 1 - ss_res / ss_tot
+	if any(abs.(β) .> 1e3) || !isfinite(R2) || R2 < 0.2
+		println("⚠️ Symbolic extraction failed sanity checks (|β| too large or low R²). Skipping save.")
+	else
+		# Save symbolic extraction results for UDE neural network
+		symbolic_ude_results = Dict(
+			:coeffs => β,
+			:intercept => β0,
+			:feature_names => feature_names,
+			:R2 => R2,
+			:n_points => n_points,
+			:standardization => Dict(:mu => vec(μΦ), :sigma => vec(σΦ), :mu_y => μy, :sigma_y => σy),
+			:model_type => "symbolic_ude_extraction",
+		)
+		BSON.@save "checkpoints/symbolic_ude_extraction.bson" symbolic_ude_results
+		println("✅ Symbolic extraction from UDE neural network completed")
+		println("   - R² for UDE neural network: $(R2)")
+		println("   - Features: $(length(symbolic_ude_results[:feature_names])) polynomial terms")
+	end
+end
 
 # ============================================================================
 # FINAL RESULTS SUMMARY

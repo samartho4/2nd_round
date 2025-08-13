@@ -4,6 +4,9 @@ include(joinpath(@__DIR__, "..", "src", "microgrid_system.jl"))
 include(joinpath(@__DIR__, "..", "src", "neural_ode_architectures.jl"))
 using .NeuralNODEArchitectures
 
+# Try to import ADVI/vi utilities if available
+import Turing: ADVI, vi
+
 Random.seed!(42)
 
 println("ULTRA-STABLE TRAINING - MAXIMUM NUMERICAL STABILITY")
@@ -68,11 +71,25 @@ println("Training Ultra-Stable Bayesian Neural ODE...")
 ultra_bayesian_model = ultra_stable_bayesian_neural_ode(t_train, Y_train, u0_train)
 
 # Ultra-conservative initial parameters
-ultra_initial_params = (σ = 0.05, θ = zeros(10))
+ultra_initial_params = (σ = 0.05, θ = 0.05 .* randn(10))
 
-# More conservative sampling
-ultra_bayesian_chain = sample(ultra_bayesian_model, NUTS(0.5), 500,  # Fewer samples, more conservative
-                             discard_initial=50, progress=true, 
+# Optional ADVI warm-start
+try
+    println("Running ADVI warm-start for Ultra-Stable Bayesian NN ODE (iters=2000)...")
+    q = vi(ultra_bayesian_model, ADVI(2000))
+    if hasproperty(q, :posterior) && hasproperty(q.posterior, :μ)
+        μ = q.posterior.μ
+        if length(μ) == 11
+            ultra_initial_params = (σ = max(0.01, abs(μ[end])), θ = μ[1:10])
+        end
+    end
+catch e
+    println("ADVI warm-start unavailable or failed: $(e). Proceeding with random init.")
+end
+
+# More conservative sampling with tuned NUTS
+ultra_bayesian_chain = sample(ultra_bayesian_model, NUTS(0.9), 500,
+                             discard_initial=100, progress=true,
                              initial_params=ultra_initial_params)
 
 # Extract results
@@ -181,12 +198,23 @@ end
 println("Training Ultra-Stable UDE...")
 ultra_ude_model = ultra_stable_bayesian_ude(t_train, Y_train, u0_train)
 
-# Ultra-conservative initial parameters
-ultra_ude_initial_params = (σ = 0.05, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = zeros(15))
+# ULTRA-STABLE UDE init
+ultra_ude_initial_params = (σ = 0.05, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = 0.05 .* randn(15))
+try
+    println("Running ADVI warm-start for Ultra-Stable UDE (iters=2000)...")
+    q_u = vi(ultra_ude_model, ADVI(2000))
+    if hasproperty(q_u, :posterior) && hasproperty(q_u.posterior, :μ)
+        μu = q_u.posterior.μ
+        if length(μu) >= 21
+            ultra_ude_initial_params = (σ = max(0.01, abs(μu[1])), ηin = μu[2], ηout = μu[3], α = μu[4], β = μu[5], γ = μu[6], nn_params = μu[6:20])
+        end
+    end
+catch e
+    println("ADVI warm-start for Ultra-Stable UDE unavailable or failed: $(e). Proceeding with random init.")
+end
 
-# More conservative sampling
-ultra_ude_chain = sample(ultra_ude_model, NUTS(0.5), 500,  # Fewer samples, more conservative
-                        discard_initial=50, progress=true, 
+ultra_ude_chain = sample(ultra_ude_model, NUTS(0.9), 500,
+                        discard_initial=100, progress=true,
                         initial_params=ultra_ude_initial_params)
 
 # Extract results

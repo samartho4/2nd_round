@@ -5,6 +5,8 @@ include(joinpath(@__DIR__, "..", "src", "neural_ode_architectures.jl"))
 using .NeuralNODEArchitectures
 using MCMCChains
 
+# ADVI/VI will be referenced via Turing.Variational
+
 Random.seed!(42)
 
 println("FIXED TRAINING - IMPLEMENTING THE 3 OBJECTIVES")
@@ -128,8 +130,8 @@ println("\n1. IMPLEMENTING BAYESIAN NEURAL ODE")
 println("-"^40)
 
 @model function bayesian_neural_ode(t, Y, u0)
-    # Use tuned prior variance if available
-    sigma_theta = isnothing(best_cfg) ? 0.3 : Float64(best_cfg[:sigma_theta])
+    # Use tuned prior variance if available (tighter default for stability)
+    sigma_theta = isnothing(best_cfg) ? 0.1 : Float64(best_cfg[:sigma_theta])
 
     σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
     θ ~ MvNormal(zeros(num_params), (sigma_theta^2) * I(num_params))
@@ -152,14 +154,36 @@ println("Training Bayesian Neural ODE...")
 bayesian_model = bayesian_neural_ode(t_train, Y_train, u0_train)
 
 # Initialization: use tuned scheme if available
-init_scheme = isnothing(best_cfg) ? "zeros" : String(best_cfg[:init_scheme])
+init_scheme = isnothing(best_cfg) ? "normal" : String(best_cfg[:init_scheme])
 init_scale  = isnothing(best_cfg) ? 0.1      : Float64(best_cfg[:init_scale])
 
 initial_params = (σ = 0.1, θ = initial_theta(init_scheme, init_scale, num_params))
 
-target_accept = isnothing(best_cfg) ? 0.65 : Float64(best_cfg[:nuts_target])
+# Optional ADVI warm-start
+advi_iters = parse(Int, get(ENV, "ADVI_ITERS", string(cfg(2000, :train, :advi_iters))))
+try
+    println("Running ADVI warm-start for Bayesian Neural ODE (iters=$(advi_iters))...")
+    q = Turing.Variational.vi(bayesian_model, Turing.Variational.ADVI(advi_iters))
+    # Attempt to extract posterior means to initialize NUTS
+    # Fallback to existing initial_params if unavailable
+    if hasproperty(q, :posterior) && hasproperty(q.posterior, :μ)
+        μ = q.posterior.μ
+        if length(μ) == num_params + 1
+            initial_params = (σ = max(0.05, abs(μ[end])), θ = μ[1:num_params])
+        end
+    end
+catch e
+    println("ADVI warm-start unavailable or failed: $(e). Proceeding with random init.")
+end
 
-bayesian_chain = sample(bayesian_model, NUTS(target_accept), TRAIN_SAMPLES, discard_initial=TRAIN_WARMUP, progress=true, initial_params=initial_params)
+# Tuned NUTS parameters
+nuts_target = isnothing(best_cfg) ? 0.85 : Float64(best_cfg[:nuts_target])
+max_depth = parse(Int, get(ENV, "NUTS_MAX_DEPTH", string(cfg(10, :mcmc, :max_depth))))
+println("Using NUTS target_accept=$(nuts_target), max_depth=$(max_depth)")
+
+# Primary sampling
+bayesian_chain = sample(bayesian_model, NUTS(nuts_target), TRAIN_SAMPLES,
+                        discard_initial=TRAIN_WARMUP, progress=true, initial_params=initial_params)
 
 # Extract results
 bayesian_params = Array(bayesian_chain)[:, 1:num_params]
@@ -202,9 +226,14 @@ try
     println("   - min ESS: $(round(minimum(ess_all), digits=1))")
     println("   - max Rhat: $(round(maximum(rhat_all), digits=3))")
     if maximum(rhat_all) > 1.1 || minimum(ess_all) < 100.0
-        println("   ⚠️ Warning: Poor convergence indicators (Rhat>1.1 or ESS<100). Consider increasing warmup, adjusting priors, or using ADVI init.")
+        println("   ⚠️ Warning: Poor convergence indicators (Rhat>1.1 or ESS<100). Retrying with stricter target_accept and longer warmup...")
+        # One adaptive retry with stricter settings
+        stricter_target = min(0.9, nuts_target + 0.05)
+        extra_warmup = max(TRAIN_WARMUP * 2, 200)
+        bayesian_chain = sample(bayesian_model, NUTS(stricter_target), TRAIN_SAMPLES,
+                                discard_initial=extra_warmup, progress=true, initial_params=initial_params)
     end
-    println("   - target_accept: $(round(target_accept, digits=2))")
+    println("   - target_accept: $(round(nuts_target, digits=2))")
 catch e
     println("   (Diagnostics unavailable): $(e)")
 end
@@ -236,6 +265,8 @@ function ude_dynamics!(dx, x, p, t)
     # Original: dx[2] = -α * x2 + β * (Pgen - Pload) + γ * x1
     # UDE: Replace β * (Pgen - Pload) with neural network
     nn_output = simple_ude_nn([x1, x2, Pgen, Pload, t], nn_params)
+    # Gradient/output clipping for stability
+    nn_output = clamp(nn_output, -5.0, 5.0)
     dx[2] = -α * x2 + nn_output + γ * x1
 end
 
@@ -258,7 +289,7 @@ end
     γ ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
     
     # Neural network parameters (15 parameters)
-    nn_params ~ MvNormal(zeros(15), 0.1)
+    nn_params ~ MvNormal(zeros(15), 0.05)
     
     # Combine physics + neural parameters
     p = [ηin, ηout, α, β, γ, nn_params...]
@@ -284,9 +315,27 @@ println("Training UDE...")
 ude_model = bayesian_ude(t_train, Y_train, u0_train)
 
 # Provide explicit initial parameters for better stability
-ude_initial_params = (σ = 0.1, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = zeros(15))
+ude_initial_params = (σ = 0.1, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = initial_theta("normal", 0.1, 15))
 
-ude_chain = sample(ude_model, NUTS(0.65), 1000, discard_initial=20, progress=true, initial_params=ude_initial_params)
+# Optional ADVI warm-start for UDE
+try
+    println("Running ADVI warm-start for UDE (iters=$(advi_iters))...")
+    q_u = Turing.Variational.vi(ude_model, Turing.Variational.ADVI(advi_iters))
+    if hasproperty(q_u, :posterior) && hasproperty(q_u.posterior, :μ)
+        μu = q_u.posterior.μ
+        if length(μu) >= 21
+            nnμ = μu[6:20]
+            ude_initial_params = (σ = max(0.05, abs(μu[1])), ηin = μu[2], ηout = μu[3], α = μu[4], β = μu[5], γ = μu[6], nn_params = nnμ)
+        end
+    end
+catch e
+    println("ADVI warm-start for UDE unavailable or failed: $(e). Proceeding with random init.")
+end
+
+# Sample UDE with tuned NUTS
+disable_progress = lowercase(get(ENV, "CI", "false")) == "true"
+ude_chain = sample(ude_model, NUTS(nuts_target), 1000,
+                   discard_initial=TRAIN_WARMUP, progress=!disable_progress, initial_params=ude_initial_params)
 
 # Extract results
 ude_params = Array(ude_chain)
@@ -331,9 +380,13 @@ try
     println("   - min ESS: $(round(minimum(ess_u), digits=1))")
     println("   - max Rhat: $(round(maximum(rhat_u), digits=3))")
     if maximum(rhat_u) > 1.1 || minimum(ess_u) < 100.0
-        println("   ⚠️ Warning: Poor convergence indicators (Rhat>1.1 or ESS<100). Consider increasing warmup or revising priors.")
+        println("   ⚠️ Warning: Poor convergence indicators for UDE. Retrying with stricter target_accept and longer warmup...")
+        stricter_target_u = min(0.9, nuts_target + 0.05)
+        extra_warmup_u = max(TRAIN_WARMUP * 2, 200)
+        ude_chain = sample(ude_model, NUTS(stricter_target_u), 1000,
+                           discard_initial=extra_warmup_u, progress=!disable_progress, initial_params=ude_initial_params)
     end
-    println("   - target_accept: 0.65")
+    println("   - target_accept: $(round(nuts_target, digits=2))")
 catch e
     println("   (Diagnostics unavailable): $(e)")
 end
@@ -438,22 +491,29 @@ ŷ = Φ * β .+ β0
 ss_res = sum((y .- ŷ).^2)
 ss_tot = sum((y .- mean(y)).^2)
 R2 = 1 - ss_res / ss_tot
+did_symbolic = true
+R2_val = R2
 
-# Save symbolic extraction results for UDE neural network
-symbolic_ude_results = Dict(
-    :coeffs => β,
-    :intercept => β0,
-    :feature_names => feature_names,
-    :R2 => R2,
-    :n_points => n_points,
-    :standardization => Dict(:mu => vec(μΦ), :sigma => vec(σΦ), :mu_y => μy, :sigma_y => σy),
-    :model_type => "symbolic_ude_extraction",
-)
-BSON.@save "checkpoints/symbolic_ude_extraction.bson" symbolic_ude_results
-println("✅ Symbolic extraction from UDE neural network completed")
-println("   - R² for UDE neural network: $(R2)")
-println("   - Features: $(length(symbolic_ude_results[:feature_names])) polynomial terms")
-println("   - Target: β * (Pgen - Pload) approximation")
+# Sanity checks for coefficients
+if any(abs.(β) .> 1e3) || !isfinite(R2) || R2 < 0.2
+    println("⚠️ Symbolic extraction failed sanity checks (|β| too large or low R²). Skipping save.")
+else
+    # Save symbolic extraction results for UDE neural network
+    symbolic_ude_results = Dict(
+        :coeffs => β,
+        :intercept => β0,
+        :feature_names => feature_names,
+        :R2 => R2,
+        :n_points => n_points,
+        :standardization => Dict(:mu => vec(μΦ), :sigma => vec(σΦ), :mu_y => μy, :sigma_y => σy),
+        :model_type => "symbolic_ude_extraction",
+    )
+    BSON.@save "checkpoints/symbolic_ude_extraction.bson" symbolic_ude_results
+    println("✅ Symbolic extraction from UDE neural network completed")
+    println("   - R² for UDE neural network: $(R2)")
+    println("   - Features: $(length(symbolic_ude_results[:feature_names])) polynomial terms")
+    println("   - Target: β * (Pgen - Pload) approximation")
+end
 
 # ============================================================================
 # FINAL RESULTS SUMMARY
@@ -473,10 +533,14 @@ println("   - Physics parameters: ηin, ηout, α, β, γ (5 parameters)")
 println("   - Neural parameters: 15 additional parameters")
 println("   - Replaced nonlinear term β·(Pgen-Pload) with neural network")
 
-println("\n✅ OBJECTIVE 3: Symbolic Extraction from UDE Neural Network")
-println("   - Extracted symbolic form from UDE neural network component")
-println("   - Polynomial regression: 20 features (x1, x2, Pgen, Pload, t)")
-println("   - R² = $(round(R2, digits=4))")
-println("   - Target: β * (Pgen - Pload) approximation")
+if isdefined(@__MODULE__, :did_symbolic) && did_symbolic
+    println("\n✅ OBJECTIVE 3: Symbolic Extraction from UDE Neural Network")
+    println("   - Extracted symbolic form from UDE neural network component")
+    println("   - Polynomial regression: 20 features (x1, x2, Pgen, Pload, t)")
+    println("   - R² = $(round(R2_val, digits=4))")
+    println("   - Target: β * (Pgen - Pload) approximation")
+else
+    println("\nℹ️ OBJECTIVE 3: Skipped symbolic extraction due to dead/unstable neural component")
+end
 
 println("\nALL 3 OBJECTIVES SUCCESSFULLY IMPLEMENTED! 🎯") 

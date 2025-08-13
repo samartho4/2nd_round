@@ -11,7 +11,7 @@ module NeuralNODEArchitectures
 
 import ..Microgrid
 
-export baseline_nn!, pinn_nn!, attention_nn!, ensemble_predict
+export baseline_nn!, baseline_nn_bias!, deep_nn!, pinn_nn!, attention_nn!, ensemble_predict, ude_nn_forward
 
 # 1. Baseline Neural ODE (same as in TECHNICAL_ANALYSIS.md)
 function baseline_nn!(dx, x, p::AbstractVector, t)
@@ -26,6 +26,49 @@ function baseline_nn!(dx, x, p::AbstractVector, t)
     # Output layer (linear)
     dx[1] = p[7]*h1 + p[8]*h2
     dx[2] = p[9]*h1 + p[10]*h2
+end
+
+# 1b. Baseline with biases (3→2→2, 14 params)
+# Parameter layout:
+#  - Hidden neuron 1: w11,w12,w13,b1  (p[1:4])
+#  - Hidden neuron 2: w21,w22,w23,b2  (p[5:8])
+#  - Output dx1: v11,v12,b3           (p[9:11])
+#  - Output dx2: v21,v22,b4           (p[12:14])
+function baseline_nn_bias!(dx, x, p::AbstractVector, t)
+    inp1, inp2 = x
+    inp3 = t
+
+    h1 = tanh(p[1]*inp1 + p[2]*inp2 + p[3]*inp3 + p[4])
+    h2 = tanh(p[5]*inp1 + p[6]*inp2 + p[7]*inp3 + p[8])
+
+    dx[1] = p[9]*h1 + p[10]*h2 + p[11]
+    dx[2] = p[12]*h1 + p[13]*h2 + p[14]
+end
+
+# 1c. Deeper network with biases (3→4→2, 26 params)
+# Layout:
+#  - Hidden (4 units): 4×3 weights (12) + 4 biases = 16  ⇒ p[1:16]
+#  - Output (2 units): 2×4 weights (8) + 2 biases = 10   ⇒ p[17:26]
+function deep_nn!(dx, x, p::AbstractVector, t)
+    x1, x2 = x
+    inp = (x1, x2, t)
+
+    # Hidden 4
+    w = p[1:12]
+    b = p[13:16]
+    h = NTuple{4,Float64}(
+        (
+            tanh(w[1]*inp[1] + w[2]*inp[2] + w[3]*inp[3] + b[1]),
+            tanh(w[4]*inp[1] + w[5]*inp[2] + w[6]*inp[3] + b[2]),
+            tanh(w[7]*inp[1] + w[8]*inp[2] + w[9]*inp[3] + b[3]),
+            tanh(w[10]*inp[1] + w[11]*inp[2] + w[12]*inp[3] + b[4])
+        )
+    )
+
+    wo = p[17:24]
+    bo1, bo2 = p[25], p[26]
+    dx[1] = wo[1]*h[1] + wo[2]*h[2] + wo[3]*h[3] + wo[4]*h[4] + bo1
+    dx[2] = wo[5]*h[1] + wo[6]*h[2] + wo[7]*h[3] + wo[8]*h[4] + bo2
 end
 
 # 2. Neural ODE
@@ -67,6 +110,15 @@ function attention_nn!(dx, x, p::AbstractVector, t)
     # Project to derivatives
     dx[1] = p[10]*attn + p[12]
     dx[2] = p[11]*attn + p[13]
+end
+
+# Centralized UDE NN forward (15 params as used in scripts)
+# Input = (x1, x2, Pgen, Pload, t)
+# Hidden: two tanh neurons with biases; Output: linear with bias
+function ude_nn_forward(x1::Float64, x2::Float64, Pgen::Float64, Pload::Float64, t::Float64, nn_params::AbstractVector)
+    h1 = tanh(nn_params[1]*x1 + nn_params[2]*x2 + nn_params[3]*Pgen + nn_params[4]*Pload + nn_params[5]*t + nn_params[6])
+    h2 = tanh(nn_params[7]*x1 + nn_params[8]*x2 + nn_params[9]*Pgen + nn_params[10]*Pload + nn_params[11]*t + nn_params[12])
+    return nn_params[13]*h1 + nn_params[14]*h2 + nn_params[15]
 end
 
 # 4. Simple ensemble prediction helper

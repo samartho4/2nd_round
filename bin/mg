@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+usage(){
+  cat <<EOF
+mg - Microgrid project task runner
+
+Usage:
+  mg data            # regenerate datasets and hashes
+  mg tune            # run hyperparameter tuning
+  mg train           # train models (uses config if present)
+  mg eval            # evaluate models on test set
+  mg verify          # run verification suite
+  mg results         # regenerate results summary
+  mg figs            # regenerate figures
+  mg fresh           # run fresh evaluation pipeline
+  mg repro           # exact reproduction pipeline (data->train->eval->results->figs->verify)
+
+Env overrides are respected (see scripts for details).
+EOF
+}
+
+cmd=${1:-help}
+shift || true
+
+case "$cmd" in
+  data)
+    julia --project=. scripts/generate_dataset.jl "$@"
+    # Assemble global CSVs if not already produced
+    if [ -f data/train_improved.csv ]; then
+      cp data/train_improved.csv data/training_dataset.csv
+      cp data/val_improved.csv   data/validation_dataset.csv
+      cp data/test_improved.csv  data/test_dataset.csv
+    fi
+    # Generate checksums
+    (cd data && shasum *.csv scenarios/*/*.csv > hashes.txt)
+    echo "✅ Data regenerated and hashes written to data/hashes.txt"
+    ;;
+  tune)    julia --project=. scripts/hparam_tuning.jl "$@" ;;
+  train)   julia --project=. scripts/train.jl "$@" ;;
+  eval)    julia --project=. scripts/evaluate.jl "$@" ;;
+  verify)  julia --project=. scripts/verify_results.jl "$@" ;;
+  results) julia --project=. scripts/generate_results_summary.jl "$@" ;;
+  figs)    julia --project=. scripts/generate_figures.jl "$@" ;;
+  fresh)   julia --project=. scripts/fresh_evaluation.jl "$@" ;;
+  repro)
+    set -x
+    "$0" data
+    "$0" train
+    "$0" eval
+    "$0" results
+    "$0" figs
+    "$0" verify
+    set +x
+    ;;
+  *) usage ;;
+ esac 

@@ -1,9 +1,8 @@
 # Fixed Training Script - Actually implements the 3 objectives
-using DifferentialEquations, Turing, CSV, DataFrames, BSON, Statistics, Random, TOML, Dates
+using DifferentialEquations, Turing, CSV, DataFrames, BSON, Statistics, Random, TOML
 include(joinpath(@__DIR__, "..", "src", "microgrid_system.jl"))
 include(joinpath(@__DIR__, "..", "src", "neural_ode_architectures.jl"))
 using .NeuralNODEArchitectures
-using MCMCChains
 
 Random.seed!(42)
 
@@ -97,30 +96,6 @@ arch_choice = arch_env === nothing ? arch_cfg : String(arch_env)
 arch_sym, deriv_fn, num_params = pick_arch(arch_choice)
 println("Using architecture: $(arch_sym) with $(num_params) params")
 
-# Helper to capture run metadata
-function capture_metadata(config::Dict{String,Any})
-    git_sha = try
-        readchomp(`git rev-parse HEAD`)
-    catch
-        "unknown"
-    end
-    meta = Dict{Symbol,Any}(
-        :git_sha => git_sha,
-        :julia_version => string(VERSION),
-        :os => Sys.KERNEL,
-        :machine => Sys.MACHINE,
-        :cpu => Sys.CPU_NAME,
-        :config => config,
-        :env => Dict(k => get(ENV, k, "") for k in ("MODEL_ARCH","TRAIN_SUBSET_SIZE","TRAIN_SAMPLES","TRAIN_WARMUP")),
-        :timestamp => Dates.format(Dates.now(), dateformat"yyyy-mm-ddTHH:MM:SS"),
-    )
-    return meta
-end
-
-# Tolerances from config if present
-train_abstol = cfg(1e-8, :solver, :abstol)
-train_reltol = cfg(1e-8, :solver, :reltol)
-
 # ============================================================================
 # OBJECTIVE 1: Bayesian Neural ODE (Replace full ODE with neural network)
 # ============================================================================
@@ -165,13 +140,6 @@ bayesian_chain = sample(bayesian_model, NUTS(target_accept), TRAIN_SAMPLES, disc
 bayesian_params = Array(bayesian_chain)[:, 1:num_params]
 bayesian_noise = Array(bayesian_chain)[:, num_params+1]
 
-# Save a small subset of posterior samples for PPC
-ns = size(bayesian_params, 1)
-save_n = min(500, ns)
-sample_idx = collect(1:save_n)
-param_samples_small = bayesian_params[sample_idx, :]
-noise_samples_small = bayesian_noise[sample_idx]
-
 # Save results properly
 bayesian_results = Dict(
     :params_mean => mean(bayesian_params, dims=1)[1, :],
@@ -181,33 +149,10 @@ bayesian_results = Dict(
     :n_samples => size(bayesian_params, 1),
     :model_type => "bayesian_neural_ode",
     :arch => String(arch_sym),
-    :solver_tolerances => (abstol=train_abstol, reltol=train_reltol),
-    :param_samples => param_samples_small,
-    :noise_samples => noise_samples_small,
-    :metadata => capture_metadata(config),
 )
 
 BSON.@save "checkpoints/bayesian_neural_ode_results.bson" bayesian_results
 println("✅ Bayesian Neural ODE trained and saved")
-
-# Diagnostics for Bayesian chain
-try
-    summ = MCMCChains.summarystats(bayesian_chain)
-    rhat_vals = MCMCChains.rhat(bayesian_chain)
-    ess_vals = MCMCChains.ess(bayesian_chain)
-    # Flatten to vectors where possible
-    rhat_all = vec(Array(rhat_vals))
-    ess_all = vec(Array(ess_vals))
-    println("📈 Bayesian NUTS diagnostics:")
-    println("   - min ESS: $(round(minimum(ess_all), digits=1))")
-    println("   - max Rhat: $(round(maximum(rhat_all), digits=3))")
-    if maximum(rhat_all) > 1.1 || minimum(ess_all) < 100.0
-        println("   ⚠️ Warning: Poor convergence indicators (Rhat>1.1 or ESS<100). Consider increasing warmup, adjusting priors, or using ADVI init.")
-    end
-    println("   - target_accept: $(round(target_accept, digits=2))")
-catch e
-    println("   (Diagnostics unavailable): $(e)")
-end
 
 # ============================================================================
 # OBJECTIVE 2: UDE (Replace only nonlinear term with neural network)
@@ -294,14 +239,6 @@ physics_params = ude_params[:, 1:5]  # ηin, ηout, α, β, γ
 neural_params = ude_params[:, 6:20]  # 15 neural parameters
 ude_noise = ude_params[:, 21]
 
-# Save small subset for PPC
-nsu = size(ude_params, 1)
-save_nu = min(300, nsu)
-sample_idx_u = collect(1:save_nu)
-physics_samples_small = physics_params[sample_idx_u, :]
-neural_samples_small = neural_params[sample_idx_u, :]
-noise_samples_u_small = ude_noise[sample_idx_u]
-
 # Save results properly
 ude_results = Dict(
     :physics_params_mean => mean(physics_params, dims=1)[1, :],
@@ -311,32 +248,11 @@ ude_results = Dict(
     :noise_mean => mean(ude_noise),
     :noise_std => std(ude_noise),
     :n_samples => size(ude_params, 1),
-    :model_type => "universal_differential_equation",
-    :solver_tolerances => (abstol=train_abstol, reltol=train_reltol),
-    :physics_samples => physics_samples_small,
-    :neural_samples => neural_samples_small,
-    :noise_samples => noise_samples_u_small,
-    :metadata => capture_metadata(config),
+    :model_type => "universal_differential_equation"
 )
 
 BSON.@save "checkpoints/ude_results_fixed.bson" ude_results
 println("✅ UDE trained and saved")
-
-# Diagnostics for UDE chain
-try
-    summ_u = MCMCChains.summarystats(ude_chain)
-    rhat_u = vec(Array(MCMCChains.rhat(ude_chain)))
-    ess_u = vec(Array(MCMCChains.ess(ude_chain)))
-    println("📈 UDE NUTS diagnostics:")
-    println("   - min ESS: $(round(minimum(ess_u), digits=1))")
-    println("   - max Rhat: $(round(maximum(rhat_u), digits=3))")
-    if maximum(rhat_u) > 1.1 || minimum(ess_u) < 100.0
-        println("   ⚠️ Warning: Poor convergence indicators (Rhat>1.1 or ESS<100). Consider increasing warmup or revising priors.")
-    end
-    println("   - target_accept: 0.65")
-catch e
-    println("   (Diagnostics unavailable): $(e)")
-end
 
 # ============================================================================
 # OBJECTIVE 3: Symbolic Extraction (Extract symbolic form from UDE neural network)

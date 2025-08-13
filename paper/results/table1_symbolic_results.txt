@@ -4,15 +4,36 @@ SYMBOLIC EXTRACTION RESULTS - PHYSICS DISCOVERY VALIDATION
 POLYNOMIAL REGRESSION RESULTS
 ------------------------------
 Target: Approximate β × (Pgen - Pload) from UDE Neural Network
-R² Score: NaN
+R2 Score: 1.0
 Number of Features: 20
 
-LEARNED COEFFICIENTS ANALYSIS
+LEARNED COEFFICIENTS ANALYSIS (DE-STANDARDIZED)
 ------------------------------
 Ground Truth: β = 1.2
 
-Learned Coefficient for Pgen:    0.0000
-Learned Coefficient for Pload:   0.0000
+Coefficient                             Value
+----------------------------------------------
+1                                      0.0000
+x1                                     0.0000
+x2                                     0.0000
+Pgen                                   0.0000
+Pload                                  0.0000
+t                                      0.0000
+x1^2                                   0.0000
+x2^2                                  -0.0000
+Pgen^2                                 0.0000
+Pload^2                                0.0000
+t^2                                    0.0000
+x1*Pgen                               -0.0000
+x2*Pgen                               -0.0000
+x1*Pload                              -0.0000
+x2*Pload                               0.0000
+Pgen*Pload                             0.0000
+x1*t                                  -0.0000
+x2*t                                  -0.0000
+Pgen*t                                 0.0000
+Pload*t                                0.0000
+Intercept                              0.0010
 
 ERROR ANALYSIS
 ---------------
@@ -21,50 +42,51 @@ Pload Error: |0.0000 - -1.2| = 1.2000
 
 MOST SIGNIFICANT COEFFICIENTS
 ------------------------------
- 1:   0.0000 × x1
- 2:   0.0000 × x2
- 3:   0.0000 × Pgen
- 4:   0.0000 × Pload
- 5:   0.0000 × t
- 6:   0.0000 × x1^2
- 7:  -0.0000 × x2^2
- 8:   0.0000 × Pgen^2
- 9:  -0.0000 × Pload^2
-10:   0.0000 × t^2
+ 1:   0.0000 × Pload
+ 2:   0.0000 × Pgen
+ 3:   0.0000 × x2
+ 4:   0.0000 × t
+ 5:  -0.0000 × x1*Pload
+ 6:  -0.0000 × x1*Pgen
+ 7:   0.0000 × Pload^2
+ 8:  -0.0000 × x2^2
+ 9:   0.0000 × Pgen*Pload
+10:  -0.0000 × x1*t
 
 PHYSICS DISCOVERY VALIDATION
 ------------------------------
 ❌ The UDE neural network did NOT successfully discover the hidden physical law:
-   - Symbolic extraction failed (R² = NaN)
+   - Symbolic extraction failed (R2 = 1.0)
    - All coefficients are approximately zero
    - The neural network did not learn the expected β × (Pgen - Pload) pattern
    - This indicates the UDE training may need improvement
 
-COMPLETE COEFFICIENT TABLE
+COMPLETE COEFFICIENT TABLE (DE-STANDARDIZED)
 -------------------------
 
 Coefficient | Value    | Feature
 -----------|----------|--------
-         1 |   0.0000 | x1
-         2 |   0.0000 | x2
-         3 |   0.0000 | Pgen
-         4 |   0.0000 | Pload
-         5 |   0.0000 | t
-         6 |   0.0000 | x1^2
-         7 |  -0.0000 | x2^2
-         8 |   0.0000 | Pgen^2
-         9 |  -0.0000 | Pload^2
-        10 |   0.0000 | t^2
-        11 |   0.0000 | x1*x2
-        12 |   0.0000 | x1*Pgen
-        13 |  -0.0000 | x1*Pload
-        14 |   0.0000 | x1*t
-        15 |   0.0000 | x2*Pgen
-        16 |   0.0000 | x2*Pload
-        17 |  -0.0000 | x2*t
-        18 |  -0.0000 | Pgen*Pload
-        19 |  -0.0000 | Pgen*t
-        20 |  -0.0000 | Pload*t
+         1 |   0.0000 | 1
+         2 |   0.0000 | x1
+         3 |   0.0000 | x2
+         4 |   0.0000 | Pgen
+         5 |   0.0000 | Pload
+         6 |   0.0000 | t
+         7 |   0.0000 | x1^2
+         8 |  -0.0000 | x2^2
+         9 |   0.0000 | Pgen^2
+        10 |   0.0000 | Pload^2
+        11 |   0.0000 | t^2
+        12 |  -0.0000 | x1*Pgen
+        13 |  -0.0000 | x2*Pgen
+        14 |  -0.0000 | x1*Pload
+        15 |   0.0000 | x2*Pload
+        16 |   0.0000 | Pgen*Pload
+        17 |  -0.0000 | x1*t
+        18 |  -0.0000 | x2*t
+        19 |   0.0000 | Pgen*t
+        20 |   0.0000 | Pload*t
+ Intercept |   0.0010 | (bias)
 
 SUMMARY
 -------
@@ -73,7 +95,7 @@ The symbolic extraction from the UDE neural network did NOT validate the physics
 1. The neural network failed to learn meaningful coefficients (all ≈ 0)
 2. Pgen coefficient: 0.0000 ≠ β = 1.2 (Error: 1.2000)
 3. Pload coefficient: 0.0000 ≠ -β = -1.2 (Error: 1.2000)
-4. R² = NaN indicates poor approximation
+4. R2 = 1.0 indicates poor approximation
 
 This indicates that the UDE training needs improvement to successfully discover
 hidden physical laws from data.

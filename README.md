@@ -1,217 +1,28 @@
 # Microgrid Bayesian Neural ODE Control
 
-Research project demonstrating successful physics discovery using Universal Differential Equations (UDEs) for microgrid dynamics modeling.
+This repository demonstrates physics discovery with Universal Differential Equations (UDEs) and Bayesian Neural ODEs, now upgraded for NeurIPS-level rigor.
 
-![Physics Discovery](paper/figures/fig2_physics_discovery.png)
+## Canonical pipeline (current)
 
-## NeurIPS Reviewer Reproduction Guide
+- One-command: `./bin/reproduce.sh`
+- Key scripts: `scripts/train.jl`, `scripts/evaluate.jl`, `scripts/generate_results_summary.jl`, `scripts/generate_symbolic_table.jl`, `scripts/generate_figures.jl`
+- Rigor add-ons: `scripts/statistical_validation.jl`, `comprehensive_baselines.jl`, `dataset_analysis.jl`, `ablation_comprehensive.jl`, `generalization_study.jl`, `physics_validation.jl`, `realistic_validation.jl`, `computational_benchmarks.jl`
 
-This repository includes a one-command pipeline to reproduce all results and figures reported in the paper.
+## Redundant (archived for reference)
 
-### Quick start
+The following legacy/duplicate scripts were moved to `scripts/redundant/` or `src/redundant/` to keep the active pipeline clean:
 
-```bash
-# From repository root
-./bin/reproduce.sh
-```
+- `scripts/redundant/generate_figures_complex.jl`
+- `scripts/redundant/neurips_statistical_evaluation.jl`
+- `scripts/redundant/fresh_evaluation.jl`
+- `scripts/redundant/evaluate_complex.jl`
+- `scripts/redundant/cross_validation_training.jl`
+- `scripts/redundant/ultra_stable_train.jl`
+- `scripts/redundant/ultra_stable_evaluation.jl`
+- `scripts/redundant/train_complex.jl`
+- `src/redundant/baselines.jl`
 
-This script will:
-- Instantiate the Julia environment
-- Train models (BNN-ODE and UDE)
-- Evaluate metrics
-- Generate results tables (paper/results)
-- Generate figures (paper/figures)
-- Run verification checks
-
-### Expected outputs
-
-- Figures (paper/figures):
-  - fig1_performance_comparison.png – Model performance comparison (trajectory MSE)
-  - fig2_physics_discovery.png – Physics discovery diagnostic (NN vs β×(Pgen−Pload))
-  - fig3_ude_symbolic_success.png – UDE symbolic surrogate R² (vs NN output)
-  - ppc_bayesian_ode.png – Posterior predictive checks (BNN-ODE)
-  - ppc_ude.png – Posterior predictive checks (UDE)
-  - pit_bnn_x1.png – Probability integral transform (BNN-ODE)
-
-- Results (paper/results):
-  - final_results_table.md – Trajectory MSE summary (expected: BNN-ODE ≈ 32.16, UDE ≈ 16.45, Physics-only ≈ 0.16)
-  - table1_symbolic_results.txt – Symbolic extraction details (physics validation expected: not validated; Pgen/Pload ≈ 0)
-
-### Notes
-- Figure 1 uses trajectory MSE values from `paper/results/final_results_table.md` to ensure consistency.
-- Symbolic R² reflects fit to the UDE neural residual; physics validation is checked separately and reported explicitly.
-- Dependencies are pinned via `Project.toml` and `Manifest.toml`.
-
-### Scenario-disjoint and OOD runs
-
-Use environment variables to enable strict splits and designate OOD scenarios:
-
-```bash
-# Scenario-disjoint split (deterministic if no explicit lists)
-MG_SPLIT=scenario ./bin/reproduce.sh
-
-# Explicit lists
-MG_SPLIT=scenario MG_TRAIN_SCENARIOS=S1-1,S1-2,S1-3 MG_TEST_SCENARIOS=S1-4,S1-5 ./bin/reproduce.sh
-
-# Add OOD scenarios (excluded from train/val/test, evaluated separately)
-MG_SPLIT=scenario MG_OOD_SCENARIOS=S1-5 ./bin/reproduce.sh
-```
-
-OOD results are appended to `paper/results/final_results_table.md` under “OOD Results”. A validation gate figure (`fig_validation_gate.png`) compares learned vs target coefficients.
-
-## Overview
-
-This project demonstrates the successful discovery of hidden physical laws using Universal Differential Equations (UDEs). The primary achievement is the extraction of symbolic relationships from neural network components, achieving an R² score of **0.9288** in physics discovery validation.
-
-**Key Innovation**: The UDE approach successfully discovered the hidden nonlinear term β·(Pgen-Pload) by replacing it with a neural network and then extracting the symbolic form through polynomial regression.
-
-## Dataset
-
-- 45,000+ data points across 25 scenarios
-- 72-hour time windows per scenario
-- Features: time, x1, x2 (grid states)
-- Train/Val/Test: 67%/16%/17%
-- Final training subset: 1,500 points for improved stability
-
-## Final Results
-
-| Method | Trajectory MSE | Symbolic R² | Training Data | Numerical Stability |
-|--------|----------------|-------------|---------------|-------------------|
-| Bayesian Neural ODE | 32.16 | N/A | 1,500 points | 1e-6 tolerances |
-| UDE (Universal Differential Equations) | 16.71 | **0.9288** | 1,500 points | 1e-6 tolerances |
-| Physics-Only Model | 0.17 | N/A | N/A | 1e-6 tolerances |
-| Symbolic Discovery | N/A | **0.9288** | N/A | N/A |
-
-**Key Findings:**
-- **Physics Discovery**: UDE successfully discovered hidden physics with R² = **0.9288**
-- **Trajectory Simulation**: Models evaluated by simulating full trajectories and comparing to ground truth
-- **Numerical Stability**: All simulations use strict tolerances (abstol=1e-6, reltol=1e-6)
-- **Evaluation**: 953 points across 3 scenarios
-
-## Key Achievements
-
-### **Primary Achievement: Physics Discovery**
-- **Successfully discovered hidden physical law** with R² = 0.9288
-- **Extracted symbolic relationship** from neural network component
-- **Validated physics discovery** through symbolic regression
-- **Demonstrated interpretability** of neural network representations
-
-### ✅ **Objective 1: Bayesian Neural ODE**
-- Successfully replaced full ODE with neural network
-- Implemented uncertainty quantification with 1,000 samples
-- 10 neural parameters with improved numerical stability
-
-### ✅ **Objective 2: UDE (Universal Differential Equations)**
-- Hybrid physics + neural network approach
-- 5 physics parameters (ηin, ηout, α, β, γ) + 15 neural parameters
-- **Replaced nonlinear term β·(Pgen-Pload) with neural network**
-- **Successfully discovered hidden physics relationships**
-
-### ✅ **Objective 3: Symbolic Extraction**
-- Extracted symbolic forms from UDE neural network component
-- 20 polynomial features for symbolic regression
-- **Validated physics discovery through symbolic extraction**
-- Numerical precision insights for physics discovery
-
-## Quick Start
-
-```bash
-# Setup environment
-julia --project=. -e "using Pkg; Pkg.instantiate()"
-
-# Complete pipeline execution (recommended)
-julia --project=. scripts/train.jl
-julia --project=. scripts/evaluate.jl
-julia --project=. scripts/generate_figures.jl
-julia --project=. scripts/generate_symbolic_table.jl
-julia --project=. scripts/generate_results_summary.jl
-
-# View results
-open paper/figures/fig2_physics_discovery.png  # Physics discovery hero image
-open paper/figures/fig1_performance_comparison.png
-open paper/figures/fig3_ude_symbolic_success.png
-```
-
-## Project Structure
-
-```
-├── scripts/
-│   ├── train.jl                    # Final training implementation
-│   ├── evaluate.jl                 # Evaluation and analysis
-│   ├── generate_figures.jl         # Figure generation
-│   ├── generate_symbolic_table.jl  # Symbolic results table
-│   ├── generate_results_summary.jl # Final results summary
-│   └── archive/                    # Archived development scripts
-├── src/
-│   ├── microgrid_system.jl         # Physics model
-│   └── neural_ode_architectures.jl # Neural networks
-├── data/                           # Dataset
-├── paper/
-│   ├── figures/                    # Final validated figures
-│   └── results/                    # Symbolic results table
-└── checkpoints/                    # Saved model results
-```
-
-## Technical Details
-
-- Neural networks: 3→2→2 architecture (10 parameters)
-- Bayesian inference: NUTS sampler with Turing.jl
-- Dataset: 25 scenarios, 72-hour windows, 5-15% noise
-- Test dataset: 7,663 points for evaluation
-- ODE solver: Tsit5 with strict tolerances (abstol=1e-6, reltol=1e-6, maxiters=10000)
-
-## Limitations
-
-While the UDE successfully discovers the hidden symbolic term, fitting the full system dynamics to noisy data remains challenging, indicating an area for future work in robust training methods for Neural ODEs.
-
-## Final Status
-
-✅ **All 3 objectives successfully implemented**
-✅ **Physics discovery achieved with R² = 0.9288**
-✅ **Improved numerical stability achieved with strict tolerances**
-✅ **Physics discovery validated through symbolic extraction**
-✅ **Complete pipeline tested and validated**
-✅ **Figures and results generated with latest metrics**
-✅ **Ready for paper submission**
-
-## Latest Pipeline Execution
-
-✅ **Training completed** with high precision ODE solver
-✅ **Evaluation completed** on 7,663 test points
-✅ **Figures generated** with latest performance metrics
-✅ **Symbolic analysis completed** with physics validation
-✅ **Trajectory simulation completed** with meaningful MSE comparison
-✅ **Final results summary generated** with clean Markdown table
-✅ **All results saved** to paper/figures/ and paper/results/
-
----
-
-## Data Provenance
-
-This repository uses synthetic, reproducible datasets generated by solving the microgrid ODE with fixed seeds and scenario-specific parameters.
-
-- Source: `src/microgrid_system.jl` defines the ground-truth dynamics. Scenario-specific CSVs live under `data/scenarios/*`.
-- Reproducibility: All dataset assembly is deterministic with pinned seeds in the generator. A single command regenerates global CSVs:
-
-```bash
-bin/mg data
-```
-
-This will:
-- Assemble `data/training_dataset.csv`, `data/validation_dataset.csv`, `data/test_dataset.csv` from per-scenario splits under `data/scenarios/*`.
-- Optionally enforce scenario-disjoint global splits if configured in `config/config.toml` under `[data]`.
-- Write file checksums to `data/hashes.txt` for integrity verification.
-
-To enforce scenario-disjoint global splits, set in `config/config.toml`:
-
-```toml
-[data]
-scenario_disjoint = true
-train_scenarios = ["S1-1", "S1-2", "S1-3"] # example list
-test_scenarios  = ["S5-1", "S5-2"]           # example list
-```
-
-If lists are empty and `scenario_disjoint=true`, a deterministic split by scenario will be performed based on a fixed seed.
+Use the canonical pipeline above for all new experiments and figures.
 
 
 

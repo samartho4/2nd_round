@@ -1,23 +1,12 @@
-# Scripts and CLI
+# Scripts quick guide
 
-Use the `bin/mg` helper to run common tasks from the project root:
+Active entry points (use `bin/mg`):
+- Training: `scripts/train.jl`
+- Evaluation: `scripts/evaluate.jl`
+- Results: `scripts/generate_results_summary.jl`
+- Figures: `scripts/generate_figures.jl`
+- Baselines: `scripts/comprehensive_baselines.jl`
+- Statistics: `scripts/statistical_validation.jl`
+- Dataset analysis: `scripts/dataset_analysis.jl`
 
-- mg tune: hyperparameter tuning (writes `checkpoints/hparam_search_results.csv`, `checkpoints/best_hparam_config.bson`)
-- mg train: training with config/env overrides
-- mg eval: evaluation on test set
-- mg verify: parameter/activation/simulation checks
-- mg results: regenerate final results table
-- mg figs: regenerate figures
-- mg fresh: fresh evaluation snapshot and figures
-
-Config
-- Optional config file at `config/config.toml` overrides defaults; environment variables still take precedence.
-
-Examples
-```bash
-mg tune
-TRAIN_SUBSET_SIZE=1500 TRAIN_SAMPLES=1000 mg train
-mg eval
-mg results
-mg figs
-``` 
+Archived in `scripts/redundant/` to keep things short and simple. Use `bin/mg` for orchestration. 

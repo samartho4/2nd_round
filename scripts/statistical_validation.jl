@@ -7,19 +7,17 @@ using Random, Statistics, StatsBase
 using CSV, DataFrames, JLD2, Dates, Printf
 using HypothesisTests, Distributions
 using DifferentialEquations
+using BSON
 
 include(joinpath(@__DIR__, "..", "src", "microgrid_system.jl"))
+include(joinpath(@__DIR__, "..", "src", "neural_ode_architectures.jl"))
 include(joinpath(@__DIR__, "..", "src", "statistical_framework.jl"))
-include(joinpath(@__DIR__, "..", "src", "baseline_models.jl"))
-include(joinpath(@__DIR__, "..", "src", "statistical_evaluation.jl"))
 
 using .Microgrid
+using .NeuralNODEArchitectures
 using .StatisticalFramework
-using .BaselineModels
 
 const N_BOOT = 2000
-const N_SEEDS = 10
-const SEEDS = 42:(42+N_SEEDS-1)
 
 println("="^70)
 println("COMPREHENSIVE STATISTICAL VALIDATION")
@@ -37,26 +35,6 @@ function bonferroni_correct(pvals::Vector{Float64})
 	return clamp.(pvals .* m, 0.0, 1.0)
 end
 
-function power_analysis_ttest(effect_d::Float64; α=0.05, power=0.8)
-	# Approximate sample size per group for two-sample t-test
-	# n ≈ 2 * (z_{1-α/2} + z_{power})^2 / d^2
-	zα = quantile(Normal(), 1 - α/2)
-	zβ = quantile(Normal(), power)
-	return ceil(Int, 2 * (zα + zβ)^2 / max(1e-12, effect_d^2))
-end
-
-function paired_tests(a::Vector{Float64}, b::Vector{Float64})
-	@assert length(a) == length(b)
-	d = a .- b
-	# Paired t-test
-	tres = OneSampleTTest(d, 0.0)
-	p_t = pvalue(tres)
-	# Wilcoxon signed-rank (approx; requires nonzero diffs)
-	nd = filter(!=(0.0), d)
-	p_w = length(nd) > 0 ? pvalue(SignedRankTest(nd)) : NaN
-	return p_t, p_w
-end
-
 function bootstrap_ci_mean(x::Vector{Float64}; nboot::Int=N_BOOT)
 	n = length(x)
 	if n == 0
@@ -70,110 +48,146 @@ function bootstrap_ci_mean(x::Vector{Float64}; nboot::Int=N_BOOT)
 	return (quantile(bmeans, 0.025), quantile(bmeans, 0.975))
 end
 
-# --- Load per-seed scores if available ---
-function load_seed_scores()
-	# Expected files from training runs
-	res = Dict{String,Vector{Float64}}(
-		"UDE" => Float64[],
-		"BNN_ODE" => Float64[],
-		"Physics-Only" => Float64[]
-	)
-	for s in SEEDS
-		# Try canonical paths; skip if missing
-		ude_path = joinpath(@__DIR__, "..", "checkpoints", "ude_seed_$(s).jld2")
-		bnn_path = joinpath(@__DIR__, "..", "checkpoints", "bnn_ode_seed_$(s).jld2")
-		if isfile(ude_path)
-			try
-				ud = JLD2.load(ude_path)
-				mse = haskey(ud, "mse") ? ud["mse"] : NaN
-				if !isnan(mse); push!(res["UDE"], mse); end
-			catch; end
-		end
-		if isfile(bnn_path)
-			try
-				bd = JLD2.load(bnn_path)
-				mse = haskey(bd, "mse") ? bd["mse"] : NaN
-				if !isnan(mse); push!(res["BNN_ODE"], mse); end
-			catch; end
-		end
-	end
-	return res
+# Build score distributions from posterior samples
+function trajectory_mse_for_params(deriv_fn::Function, θ::AbstractVector, x0::Vector{Float64}, t::Vector{Float64}; abstol=1e-8, reltol=1e-8)
+	prob = ODEProblem(deriv_fn, x0, (t[1], t[end]), collect(θ))
+	sol = solve(prob, Tsit5(), saveat=t, abstol=abstol, reltol=reltol, maxiters=10000)
+	return sol
 end
 
-# Fallback: compute quick physics-only baseline MSE from data
-function compute_physics_only_mse()
-	try
-		df = CSV.read(joinpath(@__DIR__, "..", "data", "test_dataset.csv"), DataFrame)
-		t = Array(df.time)
-		Y = Matrix(df[:, [:x1, :x2]])
-		x0 = Y[1, :]
-		prob = ODEProblem(Microgrid.microgrid!, x0, (t[1], t[end]), (0.9,0.9,0.3,1.2,0.4))
-		sol = solve(prob, Tsit5(), saveat=t)
-		Yp = hcat(sol.u...)'
-		return mean((Yp .- Y).^2)
-	catch
-		return NaN
-	end
-end
-
-# --- Main ---
 function main()
 	mkpath(joinpath(@__DIR__, "..", "paper", "results"))
-	println("Loading per-seed results...")
-	scores = load_seed_scores()
-	if isempty(scores["Physics-Only"]) 
-		ph = compute_physics_only_mse()
-		if !isnan(ph)
-			scores["Physics-Only"] = fill(ph, N_SEEDS)
+	# Load data
+	df_test = CSV.read(joinpath(@__DIR__, "..", "data", "test_dataset.csv"), DataFrame)
+	first_scn = df_test.scenario[1]
+	blk = filter(row -> row.scenario == first_scn, df_test)
+	t = Array(blk.time)
+	Y = Matrix(blk[:, [:x1, :x2]])
+	x0 = Y[1, :]
+
+	# Load results with posterior samples
+	bnn_res = BSON.load(joinpath(@__DIR__, "..", "checkpoints", "bayesian_neural_ode_results.bson"))[:bayesian_results]
+	ude_res = BSON.load(joinpath(@__DIR__, "..", "checkpoints", "ude_results_fixed.bson"))[:ude_results]
+
+	# Architecture for BNN
+	arch_name = haskey(bnn_res, :arch) ? String(bnn_res[:arch]) : "baseline"
+	function pick_arch(arch::AbstractString)
+		a = lowercase(String(arch))
+		if a == "baseline"
+			return (:baseline, baseline_nn!, 10)
+		elseif a == "baseline_bias"
+			return (:baseline_bias, baseline_nn_bias!, 14)
+		elseif a == "deep"
+			return (:deep, deep_nn!, 26)
+		else
+			return (:baseline, baseline_nn!, 10)
 		end
 	end
+	arch_sym, bayes_deriv_fn, _ = pick_arch(arch_name)
+
+	# Build score arrays from posterior samples
+	bnn_params_samples = get(bnn_res, :param_samples, nothing)
+	ude_phys = get(ude_res, :physics_samples, nothing)
+	ude_nn = get(ude_res, :neural_samples, nothing)
+
+	bnn_scores = Float64[]
+	ude_scores = Float64[]
+	phys_scores = Float64[]
+
+	# Observational truth matrix at t
+	truth = Y
+
+	# BNN
+	if bnn_params_samples !== nothing
+		for θ in eachrow(bnn_params_samples)
+			try
+				sol = trajectory_mse_for_params(bayes_deriv_fn, θ, x0, t)
+				pred = hcat(sol.u...)'
+				push!(bnn_scores, mean((pred .- truth).^2))
+			catch; end
+		end
+	end
+
+	# UDE
+	if ude_phys !== nothing && ude_nn !== nothing
+		ns = min(size(ude_phys,1), size(ude_nn,1))
+		function ude_dyn!(dx,x,p,t)
+			x1, x2 = x
+			ηin, ηout, α, β, γ = p[1:5]
+			nn_params = p[6:end]
+			u = t % 24 < 6 ? 1.0 : (t % 24 < 18 ? 0.0 : -0.8)
+			Pgen = max(0, sin((t - 6) * π / 12))
+			Pload = 0.6 + 0.2 * sin(t * π / 12)
+			Pin = u > 0 ? ηin * u : (1 / ηout) * u
+			dx[1] = Pin - Pload
+			nn_output = NeuralNODEArchitectures.ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
+			dx[2] = -α * x2 + nn_output + γ * x1
+		end
+		for k in 1:ns
+			p = [ude_phys[k, :]..., ude_nn[k, :]...]
+			try
+				prob = ODEProblem(ude_dyn!, x0, (t[1], t[end]), p)
+				sol = solve(prob, Tsit5(), saveat=t, abstol=1e-8, reltol=1e-8, maxiters=10000)
+				pred = hcat(sol.u...)'
+				push!(ude_scores, mean((pred .- truth).^2))
+			catch; end
+		end
+	end
+
+	# Physics-only single score
+	try
+		prob = ODEProblem(Microgrid.microgrid!, x0, (t[1], t[end]), (0.9,0.9,0.3,1.2,0.4))
+		sol = solve(prob, Tsit5(), saveat=t, abstol=1e-8, reltol=1e-8, maxiters=10000)
+		pred = hcat(sol.u...)'
+		push!(phys_scores, mean((pred .- truth).^2))
+	catch; end
 
 	# Summaries
-	summ = Dict{String,Any}()
-	for (m, v) in scores
-		if isempty(v); continue; end
-		ci = bootstrap_ci_mean(v)
-		summ[m] = Dict(
-			"mean"=>mean(v), "std"=>std(v), "ci"=>ci, "n"=>length(v)
-		)
+	method_scores = Dict{String,Vector{Float64}}()
+	if !isempty(bnn_scores); method_scores["BNN_ODE"] = bnn_scores; end
+	if !isempty(ude_scores); method_scores["UDE"] = ude_scores; end
+	if !isempty(phys_scores); method_scores["Physics-Only"] = phys_scores; end
+
+	method_stats = Dict{String, StatisticalFramework.StatisticalResults}()
+	for (m, v) in method_scores
+		method_stats[m] = StatisticalFramework.compute_statistical_summary(v)
 	end
 
-	# Pairwise significance, effect sizes
-	methods = collect(keys(scores))
-	pairs = [(a,b) for (i,a) in enumerate(methods) for b in methods[(i+1):end]]
-	pvals = Float64[]
-	rows = DataFrame(MethodA=String[], MethodB=String[], p_t=Float64[], p_w=Float64[], d=Float64[], nA=Int[], nB=Int[])
-	for (a,b) in pairs
-		va, vb = scores[a], scores[b]
-		if isempty(va) || isempty(vb); continue; end
-		pt, pw = paired_tests(va[1:min(end,end)], vb[1:min(end,end)])
-		d = cohens_d(va, vb)
-		push!(pvals, pt)
-		push!(rows, (a,b,pt,pw,d,length(va),length(vb)))
-	end
-	if !isempty(pvals)
-		rows.p_t_bonf = bonferroni_correct(copy(pvals))
-	end
-
-	# Power analysis for UDE vs BNN_ODE
-	if all(haskey.(Ref(summ), ["UDE","BNN_ODE"]))
-		d_est = abs(cohens_d(scores["UDE"], scores["BNN_ODE"]))
-		n_req = power_analysis_ttest(d_est)
-		println(@sprintf("Estimated effect size d=%.3f; required n per group for 80%% power ≈ %d", d_est, n_req))
-	end
-
-	# Save table
-	open(joinpath(@__DIR__, "..", "paper", "results", "enhanced_stats_summary.md"), "w") do f
-		println(f, "| Method | Mean±Std | 95% CI | n |")
-		println(f, "|---|---|---|---|")
-		for m in sort!(collect(keys(summ)))
-			S = summ[m]
-			println(f, @sprintf("| %s | %.3f±%.3f | [%.3f, %.3f] | %d |", m, S["mean"], S["std"], S["ci"][1], S["ci"][2], S["n"]))
+	# Pairwise significance and effect sizes
+	comparisons = DataFrame(Comparison=String[], p_value=Float64[], bonferroni_p=Float64[], d=Float64[])
+	methods = collect(keys(method_scores))
+	for i in 1:length(methods), j in i+1:length(methods)
+		ma, mb = methods[i], methods[j]
+		a, b = method_scores[ma], method_scores[mb]
+		if length(a) >= 3 && length(b) >= 3 && std(a) > 0 && std(b) > 0
+			p = try
+				pvalue(UnequalVarianceTTest(a, b))
+			catch
+				NaN
+			end
+			d = cohens_d(a,b)
+			push!(comparisons, ("$ma vs $mb", p, bonferroni_correct([p])[1], d))
 		end
-		println(f, "\n| Comparison | p_t | p_wilcoxon | d | Bonferroni p_t |")
-		println(f, "|---|---|---|---|---|")
-		for i in 1:nrow(rows)
-			println(f, @sprintf("| %s vs %s | %.4g | %.4g | %.3f | %.4g |", rows.MethodA[i], rows.MethodB[i], rows.p_t[i], rows.p_w[i], rows.d[i], get(rows, :p_t_bonf, fill(NaN, nrow(rows)))[i]))
+	end
+
+	# Write markdown
+	out = joinpath(@__DIR__, "..", "paper", "results", "enhanced_stats_summary.md")
+	open(out, "w") do f
+		println(f, "# Statistical Validation Summary")
+		println(f, "\n## Score distributions (trajectory MSE)")
+		println(f, "\n| Method | Mean±Std | 95% CI | n |")
+		println(f, "|---|---|---|---|")
+		for (name, s) in sort(collect(method_stats); by=x->x[1])
+			μ = @sprintf("%.4f", s.mean)
+			σ = @sprintf("%.4f", s.std)
+			ci = @sprintf("[%.4f, %.4f]", s.ci_lower, s.ci_upper)
+			println(f, "| $(name) | $(μ)±$(σ) | $(ci) | $(s.n_samples) |")
+		end
+		println(f, "\n## Significance tests")
+		println(f, "\n| Comparison | p-value | Bonferroni p | Cohen's d |")
+		println(f, "|---|---|---|---|")
+		for r in eachrow(comparisons)
+			println(f, "| $(r.Comparison) | $( @sprintf("%.4g", r.p_value) ) | $( @sprintf("%.4g", r.bonferroni_p) ) | $( @sprintf("%.3f", r.d) ) |")
 		end
 	end
 	println("✅ Saved paper/results/enhanced_stats_summary.md")

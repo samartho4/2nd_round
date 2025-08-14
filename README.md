@@ -1,28 +1,38 @@
 # Microgrid Bayesian Neural ODE Control
 
-This repository demonstrates physics discovery with Universal Differential Equations (UDEs) and Bayesian Neural ODEs, now upgraded for NeurIPS-level rigor.
+This repository demonstrates physics discovery with Universal Differential Equations (UDEs) and Bayesian Neural ODEs, upgraded for NeurIPS-level rigor.
 
-## Canonical pipeline (current)
+## Quickstart
 
-- One-command: `./bin/reproduce.sh`
-- Key scripts: `scripts/train.jl`, `scripts/evaluate.jl`, `scripts/generate_results_summary.jl`, `scripts/generate_symbolic_table.jl`, `scripts/generate_figures.jl`
-- Rigor add-ons: `scripts/statistical_validation.jl`, `comprehensive_baselines.jl`, `dataset_analysis.jl`, `ablation_comprehensive.jl`, `generalization_study.jl`, `physics_validation.jl`, `realistic_validation.jl`, `computational_benchmarks.jl`
+- Setup once: `bin/mg setup` (or `make setup`)
+- Full reproduce: `bin/mg repro` (or `make repro`)
+- Common tasks:
+  - Data: `bin/mg data`
+  - Train: `bin/mg train`
+  - Eval: `bin/mg eval`
+  - Stats: `bin/mg stats`
+  - Baselines: `bin/mg baselines`
+  - Dataset analysis: `bin/mg dataset`
+  - Figures: `bin/mg figs`
+  - Benchmarks: `bin/mg bench`
+  - Results summary: `bin/mg results`
+  - Verify: `bin/mg verify`
 
-## Redundant (archived for reference)
+## Structure (active)
 
-The following legacy/duplicate scripts were moved to `scripts/redundant/` or `src/redundant/` to keep the active pipeline clean:
+- `scripts/`
+  - Core: `train.jl`, `evaluate.jl`, `generate_results_summary.jl`, `generate_symbolic_table.jl`, `generate_figures.jl`
+  - Rigor: `statistical_validation.jl`, `comprehensive_baselines.jl`, `dataset_analysis.jl`, `ablation_comprehensive.jl`, `generalization_study.jl`, `physics_validation.jl`, `realistic_validation.jl`, `computational_benchmarks.jl`
+  - Orchestration: `run_full_pipeline.jl`
+- `src/`: core modules (`microgrid_system.jl`, `neural_ode_architectures.jl`, `statistical_framework.jl`, ...)
+- `bin/mg`: simple task runner
+- `Makefile`: convenience targets
+- `paper/`, `outputs/`: figures and results
+- `test/`: tests (`Pkg.test()` via `test/runtests.jl`)
 
-- `scripts/redundant/generate_figures_complex.jl`
-- `scripts/redundant/neurips_statistical_evaluation.jl`
-- `scripts/redundant/fresh_evaluation.jl`
-- `scripts/redundant/evaluate_complex.jl`
-- `scripts/redundant/cross_validation_training.jl`
-- `scripts/redundant/ultra_stable_train.jl`
-- `scripts/redundant/ultra_stable_evaluation.jl`
-- `scripts/redundant/train_complex.jl`
-- `src/redundant/baselines.jl`
+## Archived
 
-Use the canonical pipeline above for all new experiments and figures.
+Legacy/duplicate scripts live in `scripts/redundant/` and `src/redundant/`. Use the active structure above.
 
 
 

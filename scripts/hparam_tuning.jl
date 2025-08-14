@@ -31,7 +31,7 @@ end
 # - Runs with a reduced sample budget for speed
 # - Saves results to checkpoints/hparam_search_results.csv and best config to checkpoints/best_hparam_config.bson
 
-Random.seed!(123)
+Random.seed!(42)
 
 println("HYPERPARAMETER TUNING - Bayesian Neural ODE")
 println("="^60)

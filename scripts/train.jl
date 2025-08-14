@@ -7,7 +7,10 @@ using MCMCChains
 
 # ADVI/VI will be referenced via Turing.Variational
 
-Random.seed!(42)
+Random.seed!(42)  # Fixed seed for reproducibility
+
+const N_TRAINING_RUNS = 10  # Train multiple models with different seeds
+const SAVE_ALL_MODELS = true
 
 println("FIXED TRAINING - IMPLEMENTING THE 3 OBJECTIVES")
 println("="^60)
@@ -544,3 +547,17 @@ else
 end
 
 println("\nALL 3 OBJECTIVES SUCCESSFULLY IMPLEMENTED! 🎯") 
+
+function train_multiple_seeds()
+    for seed in 1:N_TRAINING_RUNS
+        println("Training run $seed/$N_TRAINING_RUNS")
+        Random.seed!(seed)
+        
+        # Your existing training code here, but wrapped in this loop
+        # Make sure to save models with seed suffix:
+        # save("checkpoints/ude_seed_$seed.jld2", model)
+        # save("checkpoints/bnn_ode_seed_$seed.jld2", model)
+    end
+end
+
+train_multiple_seeds() 

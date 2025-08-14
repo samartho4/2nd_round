@@ -48,7 +48,7 @@ function generate_single_scenario(id::AbstractString, p, u0::Vector{Float64};
     X_true = hcat(sol.u...)'
 
     # 2. Irregular observation times
-    Random.seed!(42 + hash(id))   # scenario-specific seed for reproducibility
+    Random.seed!(42)   # fixed seed for reproducibility
     t_obs  = sort(rand(n_obs) .* (tspan[2] - tspan[1]))
     t_obs[1] = 0.0
     X_obs  = [sol(t) for t in t_obs] |> x -> hcat(x...)'

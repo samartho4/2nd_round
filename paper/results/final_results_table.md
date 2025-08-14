@@ -9,6 +9,6 @@
 
 **Key Findings:**
 - **Trajectory Simulation**: Models evaluated by simulating full trajectories and comparing to ground truth
-- **Physics Discovery**: UDE successfully discovered hidden physics with R2 = 0.9288
+- **Physics Discovery**: Symbolic surrogate fits UDE neural residual (R2 = 0.9288); physics validation checked separately
 - **Numerical Stability**: All simulations use strict tolerances (abstol=1.0e-8, reltol=1.0e-8)
 - **Evaluation**: 953 points across 3 scenarios

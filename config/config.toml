@@ -26,4 +26,5 @@ results_dir = "outputs/results"
 [data]
 scenario_disjoint = false
 train_scenarios = []
-test_scenarios = [] 
+test_scenarios = []
+ood_scenarios = [] 

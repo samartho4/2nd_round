@@ -465,7 +465,7 @@ y = Array{Float64}(undef, n_points)
 for (i, point) in enumerate(symbolic_data[1:n_points])
     x1, x2, Pgen, Pload, t = point
     Φ[i, :] = build_features(x1, x2, Pgen, Pload, t)
-    y[i] = simple_ude_nn([x1, x2, Pgen, Pload, t], neural_params) # Use neural_params directly
+    y[i] = simple_ude_nn([x1, x2, Pgen, Pload, t], ude_nn_params)
 end
 
 # Standardize features and target for numerical stability

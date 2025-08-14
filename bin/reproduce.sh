@@ -16,12 +16,12 @@ julia --project=. -e 'include("scripts/train.jl")'
 # 3) Evaluate and compute metrics
 julia --project=. -e 'include("scripts/evaluate.jl")'
 
-# 4) Generate figures
-julia --project=. -e 'include("scripts/generate_figures.jl")'
-
-# 5) Generate results summary and tables
+# 4) Generate results summary and tables
 julia --project=. -e 'include("scripts/generate_results_summary.jl")'
 julia --project=. -e 'include("scripts/generate_symbolic_table.jl")'
+
+# 5) Generate figures
+julia --project=. -e 'include("scripts/generate_figures.jl")'
 
 # 6) Verify results (consistency, unit-style checks)
 julia --project=. -e 'include("scripts/verify_results.jl")'

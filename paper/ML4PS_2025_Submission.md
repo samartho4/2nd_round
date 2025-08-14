@@ -148,6 +148,22 @@ We provide a one-command reproduction script that installs dependencies, trains 
 - Results: `paper/results/` (final results table, symbolic extraction table)
 - Checkpoints: `checkpoints/` (trained models, posterior samples)
 
+Verified artifacts (latest run):
+- Figures (in `paper/figures/`):
+  - `fig1_performance_comparison.png` – Model performance comparison (trajectory MSE)
+  - `fig2_physics_discovery.png` – Physics discovery diagnostic
+  - `fig3_ude_symbolic_success.png` – UDE symbolic surrogate R²
+  - `ppc_bayesian_ode.png` – Posterior predictive checks
+  - `ppc_ude.png` – UDE uncertainty quantification
+  - `pit_bnn_x1.png` – Probability integral transform
+  - `fig_validation_gate.png` – Physics validation gate (|coefficients| vs |target|)
+- Results (in `paper/results/`):
+  - `final_results_table.md` – Complete performance metrics
+  - `table1_symbolic_results.txt` – Symbolic extraction details
+- Reproducibility: `bin/reproduce.sh` (one-command), or `bin/mg repro` (task runner)
+
+Verified on 2025-08-14: Reproduction pipeline completed successfully. All figures were regenerated in `paper/figures/`, and results tables were regenerated in `paper/results/`. Figure 1 reflects trajectory MSE from `paper/results/final_results_table.md`. Physics validation is explicitly shown in `fig_validation_gate.png` and remains not passed (|Pgen|,|Pload| ≈ 0 vs |β|=1.2). Scenario‑disjoint and OOD runs are supported via `MG_SPLIT`/`MG_OOD_SCENARIOS` and documented in the README.
+
 The repository includes pinned dependencies (`Project.toml`, `Manifest.toml`) and environment metadata recording.
 
 ### 5.2 ML4PS Impact

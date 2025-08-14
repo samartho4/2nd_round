@@ -50,10 +50,10 @@ println("   - Parameters: $(length(bayesian_results[:params_mean]))")
 println("\nLoading UDE model...")
 let
     try
-        ude_file = BSON.load("checkpoints/ude_models_fixed.bson")
+        ude_file = BSON.load("checkpoints/ude_results_fixed.bson")
         global ude_results = ude_file[:ude_results]
     catch e
-        error("Failed to load UDE results at checkpoints/ude_models_fixed.bson: $(e)")
+        error("Failed to load UDE results at checkpoints/ude_results_fixed.bson: $(e)")
     end
 end
 println("✅ UDE model loaded")
@@ -209,8 +209,8 @@ try
             preds[:, :, k] = hcat(sol.u...)'
         end
         med = mapslices(x -> median(x), preds; dims=3)[:, :, 1]
-        lo = mapslices(x => quantile(x, 0.05), preds; dims=3)[:, :, 1]
-        hi = mapslices(x => quantile(x, 0.95), preds; dims=3)[:, :, 1]
+        lo = mapslices(x -> quantile(x, 0.05), preds; dims=3)[:, :, 1]
+        hi = mapslices(x -> quantile(x, 0.95), preds; dims=3)[:, :, 1]
         cover = mean((Y_blk .>= lo) .& (Y_blk .<= hi))
         println("   Bayesian ODE 5–95% coverage: $(round(cover, digits=3))")
     end
@@ -238,8 +238,8 @@ try
             preds[:, :, k] = hcat(sol.u...)'
         end
         med = mapslices(x -> median(x), preds; dims=3)[:, :, 1]
-        lo = mapslices(x => quantile(x, 0.05), preds; dims=3)[:, :, 1]
-        hi = mapslices(x => quantile(x, 0.95), preds; dims=3)[:, :, 1]
+        lo = mapslices(x -> quantile(x, 0.05), preds; dims=3)[:, :, 1]
+        hi = mapslices(x -> quantile(x, 0.95), preds; dims=3)[:, :, 1]
         cover = mean((Y_blk .>= lo) .& (Y_blk .<= hi))
         println("   UDE 5–95% coverage: $(round(cover, digits=3))")
     end

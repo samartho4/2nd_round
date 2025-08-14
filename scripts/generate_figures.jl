@@ -169,21 +169,60 @@ println("✅ All metrics calculated dynamically!")
 # ============================================================================
 println("\n1. GENERATING FIGURE 1: Performance Comparison")
 
-# Create the bar chart using dynamically calculated values
+# Prefer trajectory simulation MSEs from the generated results table, fall back to dynamic derivative MSEs
 models = ["Physics-Only\nModel", "Bayesian\nNeural ODE", "Universal\nDifferential\nEquation (UDE)"]
-mse_values = [physics_only_mse, bayesian_mse, ude_mse]
+mse_values = begin
+    path = joinpath(@__DIR__, "..", "paper", "results", "final_results_table.md")
+    if isfile(path)
+        lines = readlines(path)
+        function find_mse(name::AbstractString)
+            for ln in lines
+                if startswith(ln, "|")
+                    parts = split(ln, "|")
+                    if length(parts) >= 3
+                        method = strip(parts[2])
+                        if method == name
+                            val = tryparse(Float64, strip(parts[3]))
+                            if val !== nothing
+                                return val
+                            end
+                        end
+                    end
+                end
+            end
+            return missing
+        end
+        b = find_mse("Bayesian Neural ODE")
+        u = find_mse("UDE (Universal Differential Equations)")
+        p = find_mse("Physics-Only Model")
+        if !(b === missing || u === missing || p === missing)
+            [p, b, u]
+        else
+            [physics_only_mse, bayesian_mse, ude_mse]
+        end
+    else
+        [physics_only_mse, bayesian_mse, ude_mse]
+    end
+end
+
+# Transparency: print the exact values used for Fig 1
+println("   Figure 1 trajectory MSE values (Physics-only, BNN-ODE, UDE): $(round.(mse_values, digits=2))")
 
 # Create the plot
+minv = minimum(mse_values)
+maxv = maximum(mse_values)
+ylow = max(minv/2, 1e-3)
+yhigh = maxv * 2
 p1 = bar(
     models,
     mse_values,
-    title = "Hybrid Physics-Informed UDE Outperforms Black-Box Neural ODE",
+    title = "Trajectory Simulation MSE (lower is better)",
     xlabel = "Model Type",
-    ylabel = "Test MSE",
+    ylabel = "Trajectory MSE",
     color = [:blue :red :green],
     legend = false,
-    yscale = :log10,  # Use log scale for better visualization
-    ylims = (1, 10000)
+    yscale = :log10,
+    ylims = (ylow, yhigh)
 )
 
 # Add value labels on bars
@@ -241,7 +280,7 @@ r2_physics_discovery = correlation^2
 p2 = scatter(
     true_physics_terms,
     nn_predictions,
-    title = "UDE Neural Network Discovers Hidden Physical Law",
+    title = "Physics Discovery Diagnostic: NN output vs β×(Pgen−Pload)",
     xlabel = "True Physics Term: β × (Pgen - Pload)",
     ylabel = "Neural Network Output",
     label = "UDE Predictions",
@@ -278,7 +317,7 @@ symbolic_ude_results = symbolic_ude_file[:symbolic_ude_results]
 
 # Create a plot showing the success of UDE symbolic extraction
 p3 = plot(
-    title = "UDE Neural Network Successfully Learns Physical Dynamics",
+    title = "UDE Neural Residual Polynomial Fit (R2 vs NN output)",
     xlabel = "Model Component",
     ylabel = "R2 Score",
     legend = false,
@@ -352,11 +391,11 @@ try
             dx[2] = -α * x2 + nn_output + γ * x1
         end
         for k in 1:ns
-            p = [ude_phys_samples[k, :]..., ude_nn_samples[k, :]...]
-            prob = ODEProblem(ude_dyn_s!, x0_blk, (t_blk[1], t_blk[end]), p)
-            sol = solve(prob, Tsit5(), saveat=t_blk, abstol=a_tol, reltol=r_tol, maxiters=10000)
-            preds[:, :, k] = hcat(sol.u...)'
-        end
+    local p = [ude_phys_samples[k, :]..., ude_nn_samples[k, :]...]
+    prob = ODEProblem(ude_dyn_s!, x0_blk, (t_blk[1], t_blk[end]), p)
+    sol = solve(prob, Tsit5(), saveat=t_blk, abstol=a_tol, reltol=r_tol, maxiters=10000)
+    preds[:, :, k] = hcat(sol.u...)'
+end
         med, lo, hi = summarize_preds(preds)
         p_udeppc = plot(title="UDE PPC (x1/x2)", xlabel="t", ylabel="state")
         plot!(t_blk, med[:,1], ribbon=(med[:,1]-lo[:,1], hi[:,1]-med[:,1]), label="x1 median±90%", alpha=0.3)
@@ -387,6 +426,54 @@ catch e
     println("   (PPC plots skipped): $(e)")
 end
 
+# After PPC/PIT generation, add a validation gate figure if symbolic results present
+try
+    sym_path = joinpath(@__DIR__, "..", "paper", "results", "table1_symbolic_results.txt")
+    if isfile(sym_path)
+        local lines = readlines(sym_path)
+        pgen = nothing; pload = nothing
+        for ln in lines
+            if occursin("Pgen coefficient:", ln)
+                m = match(r"Pgen coefficient:\s*([\-0-9\.]+)", ln)
+                if m !== nothing; pgen = parse(Float64, m.captures[1]); end
+            end
+            if occursin("Pload coefficient:", ln)
+                m = match(r"Pload coefficient:\s*([\-0-9\.]+)", ln)
+                if m !== nothing; pload = parse(Float64, m.captures[1]); end
+            end
+        end
+        if pgen !== nothing && pload !== nothing
+            let
+                local β_true = 1.2
+                local coeffs = [pgen, pload]
+                local labels = ["Pgen", "Pload"]
+                local target = [β_true, -β_true]
+                local learned_abs = abs.(coeffs)
+                local target_abs = abs.(target)
+                local ymax = max(maximum(target_abs), maximum(learned_abs)) * 1.15
+                # manual dodge using x-offsets
+                local x = collect(1:length(labels))
+                local offset = 0.18
+                p_gate = plot(title="Physics Validation Gate (|coeff| vs |target|)", ylabel="magnitude", ylims=(0, ymax))
+                bar!(x .- offset, learned_abs; bar_width=0.32, label="|learned|", color=:steelblue)
+                bar!(x .+ offset, target_abs; bar_width=0.32, label="|target|", color=:tomato)
+                xticks!(x, labels)
+                # annotate numeric values above bars
+                for (i, v) in enumerate(learned_abs)
+                    annotate!(x[i] - offset, v + 0.02*ymax, text(@sprintf("%.4f", v), 8))
+                end
+                for (i, v) in enumerate(target_abs)
+                    annotate!(x[i] + offset, v + 0.02*ymax, text(@sprintf("%.2f", v), 8))
+                end
+                savefig_both("fig_validation_gate.png")
+                println("   Validation gate values (|learned|, |target|): ", learned_abs, ", ", target_abs)
+            end
+        end
+    end
+catch e
+    println("   (Validation gate figure skipped): $(e)")
+end
+
 # ============================================================================
 # FINAL SUMMARY
 # ============================================================================
@@ -395,9 +482,9 @@ println("FIGURE GENERATION COMPLETE")
 println("="^50)
 
 println("📊 Generated Figures:")
-println("   1. fig1_performance_comparison.png - Model performance comparison")
-println("   2. fig2_physics_discovery.png - UDE neural network discovers physics")
-println("   3. fig3_ude_symbolic_success.png - UDE symbolic extraction success")
+println("   1. fig1_performance_comparison.png - Model performance comparison (trajectory MSE)")
+println("   2. fig2_physics_discovery.png - Physics discovery diagnostic (NN vs β×(Pgen−Pload))")
+println("   3. fig3_ude_symbolic_success.png - UDE symbolic surrogate R2 (vs NN output)")
 
 println("\n📈 DYNAMICALLY CALCULATED METRICS:")
 println("   - Test dataset: $(nrow(df_test)) points")

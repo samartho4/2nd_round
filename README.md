@@ -4,6 +4,61 @@ Research project demonstrating successful physics discovery using Universal Diff
 
 ![Physics Discovery](paper/figures/fig2_physics_discovery.png)
 
+## NeurIPS Reviewer Reproduction Guide
+
+This repository includes a one-command pipeline to reproduce all results and figures reported in the paper.
+
+### Quick start
+
+```bash
+# From repository root
+./bin/reproduce.sh
+```
+
+This script will:
+- Instantiate the Julia environment
+- Train models (BNN-ODE and UDE)
+- Evaluate metrics
+- Generate results tables (paper/results)
+- Generate figures (paper/figures)
+- Run verification checks
+
+### Expected outputs
+
+- Figures (paper/figures):
+  - fig1_performance_comparison.png – Model performance comparison (trajectory MSE)
+  - fig2_physics_discovery.png – Physics discovery diagnostic (NN vs β×(Pgen−Pload))
+  - fig3_ude_symbolic_success.png – UDE symbolic surrogate R² (vs NN output)
+  - ppc_bayesian_ode.png – Posterior predictive checks (BNN-ODE)
+  - ppc_ude.png – Posterior predictive checks (UDE)
+  - pit_bnn_x1.png – Probability integral transform (BNN-ODE)
+
+- Results (paper/results):
+  - final_results_table.md – Trajectory MSE summary (expected: BNN-ODE ≈ 32.16, UDE ≈ 16.45, Physics-only ≈ 0.16)
+  - table1_symbolic_results.txt – Symbolic extraction details (physics validation expected: not validated; Pgen/Pload ≈ 0)
+
+### Notes
+- Figure 1 uses trajectory MSE values from `paper/results/final_results_table.md` to ensure consistency.
+- Symbolic R² reflects fit to the UDE neural residual; physics validation is checked separately and reported explicitly.
+- Dependencies are pinned via `Project.toml` and `Manifest.toml`.
+
+### Scenario-disjoint and OOD runs
+
+Use environment variables to enable strict splits and designate OOD scenarios:
+
+```bash
+# Scenario-disjoint split (deterministic if no explicit lists)
+MG_SPLIT=scenario ./bin/reproduce.sh
+
+# Explicit lists
+MG_SPLIT=scenario MG_TRAIN_SCENARIOS=S1-1,S1-2,S1-3 MG_TEST_SCENARIOS=S1-4,S1-5 ./bin/reproduce.sh
+
+# Add OOD scenarios (excluded from train/val/test, evaluated separately)
+MG_SPLIT=scenario MG_OOD_SCENARIOS=S1-5 ./bin/reproduce.sh
+```
+
+OOD results are appended to `paper/results/final_results_table.md` under “OOD Results”. A validation gate figure (`fig_validation_gate.png`) compares learned vs target coefficients.
+
 ## Overview
 
 This project demonstrates the successful discovery of hidden physical laws using Universal Differential Equations (UDEs). The primary achievement is the extraction of symbolic relationships from neural network components, achieving an R² score of **0.9288** in physics discovery validation.

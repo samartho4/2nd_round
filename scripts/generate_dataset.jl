@@ -164,10 +164,12 @@ function main()
     end
 
     # Optionally enforce scenario-disjoint global splits
-    scenario_disjoint = getcfg(false, :data, :scenario_disjoint)
+    scenario_disjoint = lowercase(get(ENV, "MG_SPLIT", "")) == "scenario" ? true : getcfg(false, :data, :scenario_disjoint)
     if scenario_disjoint
-        train_scn = Set(getcfg(String[], :data, :train_scenarios))
-        test_scn  = Set(getcfg(String[], :data, :test_scenarios))
+        env_train = get(ENV, "MG_TRAIN_SCENARIOS", "")
+        env_test  = get(ENV, "MG_TEST_SCENARIOS",  "")
+        train_scn = length(env_train) > 0 ? Set(split(env_train, ",")) : Set(getcfg(String[], :data, :train_scenarios))
+        test_scn  = length(env_test)  > 0 ? Set(split(env_test,  ",")) : Set(getcfg(String[], :data, :test_scenarios))
         if isempty(train_scn) || isempty(test_scn)
             # Deterministic scenario split: first 80% train, last 20% test
             scns = unique(global_train.scenario)
@@ -181,10 +183,28 @@ function main()
         global_test  = filter(r -> r.scenario in test_scn, global_test)
     end
 
+    # Optional: designate OOD scenarios removed from train/val and only used for OOD test
+    env_ood = get(ENV, "MG_OOD_SCENARIOS", "")
+    ood_scn = length(env_ood) > 0 ? Set(split(env_ood, ",")) : Set(getcfg(String[], :data, :ood_scenarios))
+    if !isempty(ood_scn)
+        global_train = filter(r -> !(r.scenario in ood_scn), global_train)
+        global_val   = filter(r -> !(r.scenario in ood_scn), global_val)
+        # Append their test portions to a separate OOD CSV (write after globals)
+        ood_rows = filter(r -> r.scenario in ood_scn, global_test)
+        if nrow(ood_rows) > 0
+            CSV.write(joinpath(@__DIR__, "..", "data", "ood_test_dataset.csv"), ood_rows)
+        end
+        # Keep in-domain test by removing OOD from global_test
+        global_test = filter(r -> !(r.scenario in ood_scn), global_test)
+    end
+
     # Save global concatenated splits
     CSV.write(joinpath(@__DIR__, "..", "data", "training_dataset.csv"), global_train)
     CSV.write(joinpath(@__DIR__, "..", "data", "validation_dataset.csv"),   global_val)
     CSV.write(joinpath(@__DIR__, "..", "data", "test_dataset.csv"),  global_test)
+    if isdefined(Main, :ood_scn) && !isempty(ood_scn) && isfile(joinpath(@__DIR__, "..", "data", "ood_test_dataset.csv"))
+        println("   → OOD test CSV written: data/ood_test_dataset.csv (scenarios=$(collect(ood_scn)))")
+    end
 
     println("\n✅ Generated $(nrow(global_train)+nrow(global_val)+nrow(global_test)) total observations across $(length(unique(global_train.scenario))) scenarios.")
     println("   → train=$(nrow(global_train)), val=$(nrow(global_val)), test=$(nrow(global_test))")

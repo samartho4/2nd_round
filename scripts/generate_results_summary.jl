@@ -237,6 +237,19 @@ markdown_table = """
 
 println(markdown_table)
 
+# Append reliability/coverage metrics if available
+try
+    cov_file_rel = joinpath(@__DIR__, "..", "paper", "figures", "calibration_reliability.png")
+    cov_file_curve = joinpath(@__DIR__, "..", "paper", "figures", "coverage_curve.png")
+    if isfile(cov_file_rel) && isfile(cov_file_curve)
+        markdown_table *= "\n## Uncertainty Calibration\n\n"
+        markdown_table *= "- Reliability diagram saved: paper/figures/calibration_reliability.png\n"
+        markdown_table *= "- Coverage curves saved: paper/figures/coverage_curve.png\n"
+    end
+catch e
+    println("(Uncertainty calibration summary skipped): ", e)
+end
+
 # Save results to file
 println("\n💾 Saving results...")
 open(joinpath(OUT_RES_DIR, "final_results_table.md"), "w") do io

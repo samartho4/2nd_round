@@ -143,7 +143,7 @@ function ude_dynamics!(dx, x, p, t)
     Pin = u > 0 ? ηin * u : (1 / ηout) * u
     d = Pload
     dx[1] = Pin - d
-    nn_output = ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
+    nn_output = NeuralNODEArchitectures.ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
     dx[2] = -α * x2 + nn_output + γ * x1
 end
 
@@ -426,7 +426,7 @@ try
             Pload = 0.6 + 0.2 * sin(t * π / 12)
             Pin = u > 0 ? ηin * u : (1 / ηout) * u
             dx[1] = Pin - Pload
-            nn_output = ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
+            nn_output = NeuralNODEArchitectures.ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
             dx[2] = -α * x2 + nn_output + γ * x1
         end
         for k in 1:ns

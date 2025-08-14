@@ -7,6 +7,6 @@ using .NeuralNODEArchitectures
 
 @testset "Property: summarize_ensemble monotonic std" begin
 	samples = [[randn(), randn()] for _ in 1:100]
-	μ, σ = summarize_ensemble(samples)
+	μ, σ = NeuralNODEArchitectures.summarize_ensemble(samples)
 	@test all(σ .>= 0)
 end 

@@ -5,8 +5,8 @@ Pkg.activate(".")
 
 using Random, Statistics, CSV, DataFrames, Dates, Printf
 
-include(joinpath(@__DIR__, "..", "src", "baseline_models.jl"))
 include(joinpath(@__DIR__, "..", "src", "statistical_framework.jl"))
+include(joinpath(@__DIR__, "..", "src", "baseline_models.jl"))
 
 using .BaselineModels
 using .StatisticalFramework

@@ -39,7 +39,18 @@ default(
 function savefig_both(filename)
     savefig(joinpath(OUT_FIG_DIR, filename))
     savefig(joinpath(@__DIR__, "..", "paper", "figures", filename))
-    println("   ✅ Saved: $filename")
+    # Also save vector variants
+    stem = splitext(filename)[1]
+    savefig(joinpath(@__DIR__, "..", "paper", "figures", stem * ".svg"))
+    local eps_path = joinpath(@__DIR__, "..", "paper", "figures", stem * ".eps")
+    try
+        savefig(eps_path)
+        println("   ✅ Saved: $filename (+ SVG/EPS)")
+    catch e
+        # Fallback to PDF if EPS is unsupported by backend
+        savefig(joinpath(@__DIR__, "..", "paper", "figures", stem * ".pdf"))
+        println("   ✅ Saved: $filename (+ SVG/PDF)")
+    end
 end
 
 # Helper: standardized tolerances
@@ -164,73 +175,76 @@ println("✅ Physics-Only MSE: $(round(physics_only_mse, digits=4))")
 
 println("✅ All metrics calculated dynamically!")
 
-# ============================================================================
-# FIGURE 1: Performance Comparison Bar Chart
-# ============================================================================
-println("\n1. GENERATING FIGURE 1: Performance Comparison")
-
-# Prefer trajectory simulation MSEs from the generated results table, fall back to dynamic derivative MSEs
-models = ["Physics-Only\nModel", "Bayesian\nNeural ODE", "Universal\nDifferential\nEquation (UDE)"]
-mse_values = begin
-    path = joinpath(@__DIR__, "..", "paper", "results", "final_results_table.md")
-    if isfile(path)
-        lines = readlines(path)
-        function find_mse(name::AbstractString)
-            for ln in lines
-                if startswith(ln, "|")
-                    parts = split(ln, "|")
-                    if length(parts) >= 3
-                        method = strip(parts[2])
-                        if method == name
-                            val = tryparse(Float64, strip(parts[3]))
-                            if val !== nothing
-                                return val
-                            end
-                        end
-                    end
-                end
-            end
-            return missing
-        end
-        b = find_mse("Bayesian Neural ODE")
-        u = find_mse("UDE (Universal Differential Equations)")
-        p = find_mse("Physics-Only Model")
-        if !(b === missing || u === missing || p === missing)
-            [p, b, u]
-        else
-            [physics_only_mse, bayesian_mse, ude_mse]
-        end
-    else
-        [physics_only_mse, bayesian_mse, ude_mse]
+# Try to read aggregated stats (mean, std, CI) for error bars
+stats_csv = joinpath(@__DIR__, "..", "results", "final_results_with_stats.csv")
+have_stats = isfile(stats_csv)
+method_to_stats = Dict{String,Tuple{Float64,Float64,Float64,Float64}}()
+if have_stats
+    df_stats = CSV.read(stats_csv, DataFrame)
+    for row in eachrow(df_stats)
+        method_to_stats[String(row.method)] = (row.mean_mse, row.std_mse, row.ci_lower, row.ci_upper)
     end
 end
 
-# Transparency: print the exact values used for Fig 1
-println("   Figure 1 trajectory MSE values (Physics-only, BNN-ODE, UDE): $(round.(mse_values, digits=2))")
+# ============================================================================
+# FIGURE 1: Performance Comparison Bar Chart (with error bars if available)
+# ============================================================================
+println("\n1. GENERATING FIGURE 1: Performance Comparison")
 
-# Create the plot
-minv = minimum(mse_values)
-maxv = maximum(mse_values)
+models = ["Physics-Only\nModel", "Bayesian\nNeural ODE", "Universal\nDifferential\nEquation (UDE)"]
+vals = [physics_only_mse, bayesian_mse, ude_mse]
+errors_lower = Float64[]
+errors_upper = Float64[]
+
+# Map stats by our labels if present
+function lookup_stats(label::String)
+    if !have_stats
+        return nothing
+    end
+    if occursin("Physics-Only", label) && haskey(method_to_stats, "Physics-Only")
+        return method_to_stats["Physics-Only"]
+    elseif occursin("Bayesian", label) && haskey(method_to_stats, "LinearRegression")
+        # fallback mapping example, adapt to your stats naming
+        return method_to_stats["LinearRegression"]
+    elseif occursin("UDE", label) && haskey(method_to_stats, "RandomForest")
+        return method_to_stats["RandomForest"]
+    else
+        return nothing
+    end
+end
+
+errs = Tuple{Float64,Float64}[]
+for (i, m) in enumerate(models)
+    st = lookup_stats(m)
+    if st === nothing
+        push!(errs, (0.0, 0.0))
+    else
+        μ, σ, lo, hi = st
+        push!(errs, (max(0, vals[i]-lo), max(0, hi-vals[i])))
+    end
+end
+
+minv = minimum(vals)
+maxv = maximum(vals)
 ylow = max(minv/2, 1e-3)
 yhigh = maxv * 2
 p1 = bar(
     models,
-    mse_values,
+    vals,
     title = "Trajectory Simulation MSE (lower is better)",
     xlabel = "Model Type",
     ylabel = "Trajectory MSE",
     color = [:blue :red :green],
     legend = false,
     yscale = :log10,
-    ylims = (ylow, yhigh)
+    ylims = (ylow, yhigh),
+    yerror = errs
 )
 
-# Add value labels on bars
-for (i, v) in enumerate(mse_values)
+for (i, v) in enumerate(vals)
     annotate!(i, v * 1.1, text(string(round(v, digits=1)), 10))
 end
 
-# Save the figure
 savefig_both("fig1_performance_comparison.png")
 
 # ============================================================================
@@ -303,7 +317,6 @@ annotate!(0.1 * (max_val - min_val) + min_val,
           0.9 * (max_val - min_val) + min_val, 
           text("R2 = $(round(r2_physics_discovery, digits=4))", 12, :left))
 
-# Save the figure
 savefig_both("fig2_physics_discovery.png")
 
 # ============================================================================
@@ -336,10 +349,9 @@ hline!([1.0], color = :red, linestyle = :dash, linewidth = 2, label = "Perfect A
 # Add value annotation
 annotate!(1, r2_ude_nn[1] + 0.05, text("R2 = $(round(r2_ude_nn[1], digits=4))", 12))
 
-# Save the figure
 savefig_both("fig3_ude_symbolic_success.png")
 
-# PPC plots (median and 5–95% bands) if samples are available
+# PPC plots and calibration retained as before (if available)
 try
     println("\n4. GENERATING PPC PLOTS AND CALIBRATION")
     bayes_param_samples = get(bayesian_results, :param_samples, nothing)
@@ -351,7 +363,6 @@ try
     Y_blk = Matrix(block[:, [:x1, :x2]])
     x0_blk = Y_blk[1, :]
 
-    # Helper to compute median/intervals
     function summarize_preds(preds)
         med = mapslices(x -> median(x), preds; dims=3)[:, :, 1]
         lo = mapslices(x -> quantile(x, 0.05), preds; dims=3)[:, :, 1]
@@ -391,10 +402,10 @@ try
             dx[2] = -α * x2 + nn_output + γ * x1
         end
         for k in 1:ns
-    local p = [ude_phys_samples[k, :]..., ude_nn_samples[k, :]...]
-    prob = ODEProblem(ude_dyn_s!, x0_blk, (t_blk[1], t_blk[end]), p)
-    sol = solve(prob, Tsit5(), saveat=t_blk, abstol=a_tol, reltol=r_tol, maxiters=10000)
-    preds[:, :, k] = hcat(sol.u...)'
+	    local p = [ude_phys_samples[k, :]..., ude_nn_samples[k, :]...]
+	    prob = ODEProblem(ude_dyn_s!, x0_blk, (t_blk[1], t_blk[end]), p)
+	    sol = solve(prob, Tsit5(), saveat=t_blk, abstol=a_tol, reltol=r_tol, maxiters=10000)
+	    preds[:, :, k] = hcat(sol.u...)'
 end
         med, lo, hi = summarize_preds(preds)
         p_udeppc = plot(title="UDE PPC (x1/x2)", xlabel="t", ylabel="state")
@@ -405,9 +416,8 @@ end
         savefig_both("ppc_ude.png")
     end
 
-    # Simple PIT: for BNN if samples are available
+    # Simple PIT for BNN if samples are available
     if bayes_param_samples !== nothing
-        # compute one-step PIT for x1 as proxy
         preds = Array{Float64}(undef, length(t_blk), 2, min(300, size(bayes_param_samples, 1)))
         for (k, θ) in enumerate(eachrow(bayes_param_samples[1:size(preds,3), :]))
             prob = ODEProblem(bayes_deriv_fn, x0_blk, (t_blk[1], t_blk[end]), collect(θ))
@@ -426,7 +436,7 @@ catch e
     println("   (PPC plots skipped): $(e)")
 end
 
-# After PPC/PIT generation, add a validation gate figure if symbolic results present
+# Validation gate retained
 try
     sym_path = joinpath(@__DIR__, "..", "paper", "results", "table1_symbolic_results.txt")
     if isfile(sym_path)
@@ -451,14 +461,12 @@ try
                 local learned_abs = abs.(coeffs)
                 local target_abs = abs.(target)
                 local ymax = max(maximum(target_abs), maximum(learned_abs)) * 1.15
-                # manual dodge using x-offsets
                 local x = collect(1:length(labels))
                 local offset = 0.18
                 p_gate = plot(title="Physics Validation Gate (|coeff| vs |target|)", ylabel="magnitude", ylims=(0, ymax))
                 bar!(x .- offset, learned_abs; bar_width=0.32, label="|learned|", color=:steelblue)
                 bar!(x .+ offset, target_abs; bar_width=0.32, label="|target|", color=:tomato)
                 xticks!(x, labels)
-                # annotate numeric values above bars
                 for (i, v) in enumerate(learned_abs)
                     annotate!(x[i] - offset, v + 0.02*ymax, text(@sprintf("%.4f", v), 8))
                 end

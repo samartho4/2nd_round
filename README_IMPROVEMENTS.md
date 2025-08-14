@@ -55,3 +55,29 @@ julia --project=. scripts/generate_results_summary.jl  # Update this to use new 
 2. Add limitations section discussing failure cases
 3. Include computational requirements in paper
 4. Test on real data if available 
+
+# Repository Enhancements Summary
+
+- scripts/statistical_validation.jl: Bootstrap CIs, paired tests, effect sizes, Bonferroni, power analysis
+- scripts/comprehensive_baselines.jl: Standardized baseline adapters and metrics
+- scripts/dataset_analysis.jl: Learning curves, k-fold CV, walk-forward validation
+- scripts/ablation_comprehensive.jl: Architecture/training/physics ablation grids
+- scripts/generalization_study.jl: Multi-system generalization scaffold
+- scripts/physics_validation.jl: Physics meaningfulness checks
+- scripts/realistic_validation.jl: Real-world data and economics scaffold
+- scripts/computational_benchmarks.jl: Timing and efficiency reporting
+- scripts/theoretical_analysis.jl: Theory placeholders
+- docs/: Background, algorithms, setup, results interpretation, troubleshooting
+
+Run examples:
+
+```bash
+julia --project=. scripts/statistical_validation.jl
+julia --project=. scripts/comprehensive_baselines.jl
+julia --project=. scripts/dataset_analysis.jl
+julia --project=. scripts/ablation_comprehensive.jl
+julia --project=. scripts/generalization_study.jl
+julia --project=. scripts/physics_validation.jl
+julia --project=. scripts/realistic_validation.jl
+julia --project=. scripts/computational_benchmarks.jl
+``` 

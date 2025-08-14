@@ -1,8 +1,6 @@
 module Microgrid
 # Simple microgrid-like toy system. Keep it readable.
 
-using DifferentialEquations
-
 "Control schedule: charge 0–6h, idle 6–18h, discharge 18–24h (repeat daily)."
 control_input(t) = t % 24 < 6  ?  1.0 :
                    t % 24 < 18 ?  0.0 : -0.8

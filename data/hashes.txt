@@ -1,7 +1,11 @@
 407b6c656a26d6fa612f9a6471b1d0b08415d463  ground_truth_data.csv
 08a42b37267e3a6e9454b64f39a624ae8eef503e  scenario_descriptions.csv
 e7ecb3003f668c30ce27ce3e334b5e9ee0651b93  test_dataset.csv
+76f859d8a30ede09429781b8b272395f5c75e3cc  test_temporal.csv
+a52460ee9ac000de9e4456229101da250a71ad26  train_expanded.csv
+0843584ea15d8532d2bacd8a2d5ad71c29384347  train_temporal.csv
 f01535097d3ddec20db4971f0685df6307f8a3ca  training_dataset.csv
+cd5f71e10d425c9c6ea969056aa60c858ed24b18  val_temporal.csv
 316d21be6ddcbadf289bbee57484878b56cc62c4  validation_dataset.csv
 fc5b32490ddfc48ca02d07ca42210a6ff8c14b48  scenarios/S1-1/test.csv
 2ac900f47b702c9a624daa08f81683259fe52d75  scenarios/S1-1/train.csv

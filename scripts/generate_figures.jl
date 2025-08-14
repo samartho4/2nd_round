@@ -370,6 +370,31 @@ try
         return med, lo, hi
     end
 
+    # Helper: empirical coverage curve for given nominal levels
+    function compute_empirical_coverage(preds::Array{Float64,3}, truth::Matrix{Float64}, var_idx::Int, levels::Vector{Float64})
+        T = size(preds, 1)
+        cov = zeros(length(levels))
+        for (li, l) in enumerate(levels)
+            α = (1 - l) / 2
+            cnt = 0
+            for i in 1:T
+                samp = vec(preds[i, var_idx, :])
+                lo = quantile(samp, α)
+                hi = quantile(samp, 1 - α)
+                yi = truth[i, var_idx]
+                if yi >= lo && yi <= hi
+                    cnt += 1
+                end
+            end
+            cov[li] = T > 0 ? cnt / T : 0.0
+        end
+        return cov
+    end
+
+    levels = collect(0.1:0.1:0.9)
+    cov_bnn_x1 = nothing; cov_bnn_x2 = nothing
+    cov_ude_x1 = nothing; cov_ude_x2 = nothing
+
     if bayes_param_samples !== nothing
         preds = Array{Float64}(undef, length(t_blk), 2, size(bayes_param_samples, 1))
         for (k, θ) in enumerate(eachrow(bayes_param_samples))
@@ -384,6 +409,9 @@ try
         scatter!(t_blk, Y_blk[:,1], ms=2, label="x1 obs", alpha=0.4)
         scatter!(t_blk, Y_blk[:,2], ms=2, label="x2 obs", alpha=0.4)
         savefig_both("ppc_bayesian_ode.png")
+        # Coverage curves (BNN)
+        cov_bnn_x1 = compute_empirical_coverage(preds, Y_blk, 1, levels)
+        cov_bnn_x2 = compute_empirical_coverage(preds, Y_blk, 2, levels)
     end
 
     if ude_phys_samples !== nothing && ude_nn_samples !== nothing
@@ -402,11 +430,11 @@ try
             dx[2] = -α * x2 + nn_output + γ * x1
         end
         for k in 1:ns
-	    local p = [ude_phys_samples[k, :]..., ude_nn_samples[k, :]...]
-	    prob = ODEProblem(ude_dyn_s!, x0_blk, (t_blk[1], t_blk[end]), p)
-	    sol = solve(prob, Tsit5(), saveat=t_blk, abstol=a_tol, reltol=r_tol, maxiters=10000)
-	    preds[:, :, k] = hcat(sol.u...)'
-end
+            local p = [ude_phys_samples[k, :]..., ude_nn_samples[k, :]...]
+            prob = ODEProblem(ude_dyn_s!, x0_blk, (t_blk[1], t_blk[end]), p)
+            sol = solve(prob, Tsit5(), saveat=t_blk, abstol=a_tol, reltol=r_tol, maxiters=10000)
+            preds[:, :, k] = hcat(sol.u...)'
+        end
         med, lo, hi = summarize_preds(preds)
         p_udeppc = plot(title="UDE PPC (x1/x2)", xlabel="t", ylabel="state")
         plot!(t_blk, med[:,1], ribbon=(med[:,1]-lo[:,1], hi[:,1]-med[:,1]), label="x1 median±90%", alpha=0.3)
@@ -414,6 +442,40 @@ end
         scatter!(t_blk, Y_blk[:,1], ms=2, label="x1 obs", alpha=0.4)
         scatter!(t_blk, Y_blk[:,2], ms=2, label="x2 obs", alpha=0.4)
         savefig_both("ppc_ude.png")
+        # Coverage curves (UDE)
+        cov_ude_x1 = compute_empirical_coverage(preds, Y_blk, 1, levels)
+        cov_ude_x2 = compute_empirical_coverage(preds, Y_blk, 2, levels)
+    end
+
+    # Reliability diagram (x1): empirical vs nominal coverage
+    try
+        p_rel = plot(title="Reliability Diagram (x1)", xlabel="Nominal coverage", ylabel="Empirical coverage")
+        if cov_bnn_x1 !== nothing
+            plot!(levels, cov_bnn_x1; label="BNN-ODE x1")
+        end
+        if cov_ude_x1 !== nothing
+            plot!(levels, cov_ude_x1; label="UDE x1")
+        end
+        plot!(levels, levels; label="Ideal", linestyle=:dash, color=:black)
+        savefig_both("calibration_reliability.png")
+    catch e
+        println("   (Reliability diagram skipped): $(e)")
+    end
+
+    # Coverage curve (x1/x2 for BNN if available, else UDE)
+    try
+        p_cov = plot(title="Coverage Curves", xlabel="Nominal coverage", ylabel="Empirical coverage")
+        if cov_bnn_x1 !== nothing && cov_bnn_x2 !== nothing
+            plot!(levels, cov_bnn_x1; label="BNN-ODE x1")
+            plot!(levels, cov_bnn_x2; label="BNN-ODE x2")
+        elseif cov_ude_x1 !== nothing && cov_ude_x2 !== nothing
+            plot!(levels, cov_ude_x1; label="UDE x1")
+            plot!(levels, cov_ude_x2; label="UDE x2")
+        end
+        plot!(levels, levels; label="Ideal", linestyle=:dash, color=:black)
+        savefig_both("coverage_curve.png")
+    catch e
+        println("   (Coverage curve skipped): $(e)")
     end
 
     # Simple PIT for BNN if samples are available

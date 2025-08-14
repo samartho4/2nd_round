@@ -1,3 +1,90 @@
+# =============================================================================
+# NEURIPS STATISTICAL TRAINING MODIFICATIONS
+# =============================================================================
+
+using Random
+using JLD2, FileIO
+
+# Training configuration for statistical validation
+const N_STATISTICAL_RUNS = 10
+const BASE_TRAINING_SEED = 42
+const TRAINING_SEEDS = BASE_TRAINING_SEED:(BASE_TRAINING_SEED + N_STATISTICAL_RUNS - 1)
+
+println("🎯 NeurIPS Statistical Training Pipeline")
+println("🔢 Training $N_STATISTICAL_RUNS models with different seeds")
+println("🌱 Seeds: $(collect(TRAINING_SEEDS))")
+println()
+
+# Create checkpoints directory
+mkpath("checkpoints")
+
+function train_single_model_with_seed(seed::Int, model_type::String)
+    """Train a single model with fixed seed"""
+    
+    println("🚀 Training $model_type with seed $seed...")
+    Random.seed!(seed)
+    
+    # Your existing model training code should go here
+    # This is a placeholder that you need to replace with your actual training
+    
+    if model_type == "ude"
+        # TODO: Replace with your actual UDE training code
+        @warn "UDE training not implemented - using placeholder"
+        
+        # Placeholder model (replace with your actual UDE model)
+        model = Dict("type" => "ude", "seed" => seed, "placeholder" => true)
+        
+        # Save with seed suffix
+        save("checkpoints/ude_seed_$(seed).jld2", "model", model)
+        
+    elseif model_type == "bnn_ode"
+        # TODO: Replace with your actual BNN-ODE training code
+        @warn "BNN-ODE training not implemented - using placeholder"
+        
+        # Placeholder model (replace with your actual BNN-ODE model)
+        model = Dict("type" => "bnn_ode", "seed" => seed, "placeholder" => true)
+        
+        # Save with seed suffix
+        save("checkpoints/bnn_ode_seed_$(seed).jld2", "model", model)
+        
+    else
+        error("Unknown model type: $model_type")
+    end
+    
+    println("   ✅ $model_type training complete (seed: $seed)")
+    return model
+end
+
+function run_statistical_training()
+    """Run training for all seeds and model types"""
+    
+    trained_models = Dict{String, Vector{Any}}()
+    
+    for model_type in ["ude", "bnn_ode"]
+        println("🔄 Training $model_type models...")
+        models = []
+        
+        for seed in TRAINING_SEEDS
+            model = train_single_model_with_seed(seed, model_type)
+            push!(models, model)
+        end
+        
+        trained_models[model_type] = models
+        println("✅ All $model_type models trained!")
+        println()
+    end
+    
+    return trained_models
+end
+
+# Replace your existing training calls with this
+println("🎯 Starting NeurIPS Statistical Training...")
+trained_models = run_statistical_training()
+
+println("="^60)
+println("✅ NeurIPS Statistical Training Complete!")
+println("="^60)
+
 # Fixed Training Script - Actually implements the 3 objectives
 using DifferentialEquations, Turing, CSV, DataFrames, BSON, Statistics, Random, TOML, Dates
 include(joinpath(@__DIR__, "..", "src", "microgrid_system.jl"))

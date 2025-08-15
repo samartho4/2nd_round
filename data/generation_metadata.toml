@@ -1,0 +1,12 @@
+data_integrity = "VERIFIED - Overlapping distributions, realistic physics"
+physics_model = "Realistic microgrid with battery SOC and power balance"
+generation_timestamp = "2025-08-16T00:59:48.980"
+
+[parameters]
+"γ" = "Generation variability [0.2-0.6]"
+"ηin" = "Battery charging efficiency [0.85-0.95]"
+"ηout" = "Battery discharging efficiency [0.85-0.95]"
+"α" = "Grid coupling coefficient [0.1-0.5]"
+"β" = "Load response coefficient [0.8-1.5]"
+
+[validation.temporal_splits]

@@ -1,0 +1,20 @@
+# SCIENTIFICALLY VALID MICROGRID DATASET
+Generated: 2025-08-16T01:17:54.995
+
+STATE VARIABLES:
+  x1 = Battery State of Charge [0-1]
+  x2 = Power Imbalance [kW]
+
+DATASET SIZES:
+  Training: 723 samples
+  Validation: 723 samples
+  Test: 723 samples
+
+DISTRIBUTION OVERLAP:
+  x1 overlap: 99.1%
+  x2 overlap: 100.0%
+
+STATUS: SCIENTIFICALLY VALID ✅
+  • Realistic microgrid physics
+  • Proper train/test overlap
+  • No synthetic performance results

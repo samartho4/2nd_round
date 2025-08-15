@@ -21,6 +21,7 @@ Usage:
   mg results         # regenerate results summary
   mg figs            # regenerate figures
   mg repro           # full reproduction (data->train->eval->results->figs->verify)
+  mg determinism     # validate determinism across multiple seeds
 
 Env overrides are respected (see scripts for details).
 EOF
@@ -67,6 +68,9 @@ case "$cmd" in
     "$0" bench
     "$0" verify
     set +x
+    ;;
+  determinism)
+    julia --project=. scripts/determinism_check.jl "$@"
     ;;
   *) usage ;;
  esac 

@@ -9,4 +9,4 @@ Active entry points (use `bin/mg`):
 - Statistics: `scripts/statistical_validation.jl`
 - Dataset analysis: `scripts/dataset_analysis.jl`
 
-Archived in `scripts/redundant/` to keep things short and simple. Use `bin/mg` for orchestration. 
+Archived in `scripts/archive/` to keep things short and simple. Use `bin/mg` for orchestration. 

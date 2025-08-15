@@ -116,7 +116,7 @@ end
 # Centralized UDE NN forward (15 params as used in scripts)
 # Input = (x1, x2, Pgen, Pload, t)
 # Hidden: two tanh neurons with biases; Output: linear with bias
-function ude_nn_forward(x1::Float64, x2::Float64, Pgen::Float64, Pload::Float64, t::Float64, nn_params::AbstractVector)
+function ude_nn_forward(x1::T, x2::T, Pgen, Pload, t, nn_params::AbstractVector) where T
     h1 = tanh(nn_params[1]*x1 + nn_params[2]*x2 + nn_params[3]*Pgen + nn_params[4]*Pload + nn_params[5]*t + nn_params[6])
     h2 = tanh(nn_params[7]*x1 + nn_params[8]*x2 + nn_params[9]*Pgen + nn_params[10]*Pload + nn_params[11]*t + nn_params[12])
     return nn_params[13]*h1 + nn_params[14]*h2 + nn_params[15]

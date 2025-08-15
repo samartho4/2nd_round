@@ -20,8 +20,8 @@ reltol = 1e-8
 arch = "baseline_bias"  # options: baseline, baseline_bias, deep
 
 [paths]
-figures_dir = "outputs/figures"
-results_dir = "outputs/results"
+figures_dir = "paper/figures"
+results_dir = "paper/results"
 
 [data]
 scenario_disjoint = false

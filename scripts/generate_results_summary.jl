@@ -22,9 +22,19 @@ getcfg(dflt, ks...) = begin
     end
     return v
 end
-const OUT_RES_DIR = joinpath(@__DIR__, "..", String(getcfg("outputs/results", :paths, :results_dir)))
+
+function parse_outdir(argv)
+    for (i, a) in enumerate(argv)
+        if a == "--outdir" && i < length(argv)
+            return argv[i+1]
+        elseif startswith(a, "--outdir=")
+            return split(a, "=", limit=2)[2]
+        end
+    end
+    return String(getcfg("paper/results", :paths, :results_dir))
+end
+const OUT_RES_DIR = joinpath(@__DIR__, "..", parse_outdir(ARGS))
 mkpath(OUT_RES_DIR)
-mkpath(joinpath(@__DIR__, "..", "paper", "results"))
 
 # Standard solver tolerances
 a_tol = getcfg(1e-8, :solver, :abstol)
@@ -204,8 +214,6 @@ if total_points > 0
     println("   UDE (Universal Differential Equations): $(round(ude_final_mse, digits=2))")
     println("   Physics-Only Model: $(round(physics_final_mse, digits=2))")
     println()
-    println("🎯 SYMBOLIC DISCOVERY RESULTS:")
-    println("   UDE Neural Network R2: $(round(symbolic_r2, digits=4))")
 else
     println("❌ No successful simulations completed")
     bayesian_final_mse = NaN
@@ -221,100 +229,21 @@ println("="^60)
 markdown_table = """
 ## Final Results
 
-| Method | Trajectory MSE | Symbolic R2 | Training Data | Numerical Stability |
-|--------|----------------|-------------|---------------|-------------------|
-| Bayesian Neural ODE | $(round(bayesian_final_mse, digits=2)) | N/A | 1,500 points | abstol=$(a_tol), reltol=$(r_tol) |
-| UDE (Universal Differential Equations) | $(round(ude_final_mse, digits=2)) | $(round(symbolic_r2, digits=4)) | 1,500 points | abstol=$(a_tol), reltol=$(r_tol) |
-| Physics-Only Model | $(round(physics_final_mse, digits=2)) | N/A | N/A | abstol=$(a_tol), reltol=$(r_tol) |
-| Symbolic Discovery | N/A | $(round(symbolic_r2, digits=4)) | N/A | N/A |
-
-**Key Findings:**
-- **Trajectory Simulation**: Models evaluated by simulating full trajectories and comparing to ground truth
-- **Physics Discovery**: Symbolic surrogate fits UDE neural residual (R2 = $(round(symbolic_r2, digits=4))); physics validation checked separately
-- **Numerical Stability**: All simulations use strict tolerances (abstol=$(a_tol), reltol=$(r_tol))
-- **Evaluation**: $(total_points) points across $(length(eval_scenarios)) scenarios
+| Method | Trajectory MSE | Training Data | Numerical Stability |
+|--------|----------------|---------------|-------------------|
+| Bayesian Neural ODE | $(round(bayesian_final_mse, digits=2)) | 1,500 points | abstol=$(a_tol), reltol=$(r_tol) |
+| UDE (Universal Differential Equations) | $(round(ude_final_mse, digits=2)) | 1,500 points | abstol=$(a_tol), reltol=$(r_tol) |
+| Physics-Only Model | $(round(physics_final_mse, digits=2)) | N/A | abstol=$(a_tol), reltol=$(r_tol) |
 """
 
 println(markdown_table)
-
-# Append reliability/coverage metrics if available
-try
-    cov_file_rel = joinpath(@__DIR__, "..", "paper", "figures", "calibration_reliability.png")
-    cov_file_curve = joinpath(@__DIR__, "..", "paper", "figures", "coverage_curve.png")
-    if isfile(cov_file_rel) && isfile(cov_file_curve)
-        markdown_table *= "\n## Uncertainty Calibration\n\n"
-        markdown_table *= "- Reliability diagram saved: paper/figures/calibration_reliability.png\n"
-        markdown_table *= "- Coverage curves saved: paper/figures/coverage_curve.png\n"
-    end
-catch e
-    println("(Uncertainty calibration summary skipped): ", e)
-end
 
 # Save results to file
 println("\n💾 Saving results...")
 open(joinpath(OUT_RES_DIR, "final_results_table.md"), "w") do io
     write(io, markdown_table)
 end
-cp(joinpath(OUT_RES_DIR, "final_results_table.md"), joinpath(@__DIR__, "..", "paper", "results", "final_results_table.md"); force=true)
-println("✅ Results saved to $(OUT_RES_DIR)/final_results_table.md and mirrored to paper/results/")
-
-# Load OOD dataset if present
-has_ood = isfile("data/ood_test_dataset.csv")
-if has_ood
-    println("\nDetected OOD dataset: evaluating OOD trajectory MSE as well")
-    df_ood = CSV.read("data/ood_test_dataset.csv", DataFrame)
-    ood_scenarios = unique(df_ood.scenario)
-    println("📊 OOD scenarios: $(ood_scenarios)")
-
-    function evaluate_block(df_block)
-        t_data = Array(df_block.time)
-        Y_data = Matrix(df_block[:, [:x1, :x2]])
-        x0 = Y_data[1, :]
-        tspan = (t_data[1], t_data[end])
-        res = Dict("points"=>0, "bayesian_mse"=>NaN, "ude_mse"=>NaN, "physics_mse"=>NaN)
-        try
-            bsol = simulate_bayesian_trajectory(x0, tspan, bayesian_params)
-            usol = simulate_ude_trajectory(x0, tspan, physics_params, neural_params)
-            psol = simulate_physics_trajectory(x0, tspan)
-            btraj = bsol(t_data); utraj = usol(t_data); ptraj = psol(t_data)
-            res["bayesian_mse"] = mean((btraj .- Y_data').^2)
-            res["ude_mse"]      = mean((utraj .- Y_data').^2)
-            res["physics_mse"]  = mean((ptraj .- Y_data').^2)
-            res["points"]       = length(t_data)
-        catch e
-            println("   ⚠️  OOD simulation failed: $(e)")
-        end
-        return res
-    end
-
-    ood_total = Dict("bayesian"=>0.0, "ude"=>0.0, "physics"=>0.0, "points"=>0)
-    for scn in ood_scenarios
-        blk = filter(row -> row.scenario == scn, df_ood)
-        r = evaluate_block(blk)
-        if !isnan(r["bayesian_mse"]) 
-            ood_total["bayesian"] += r["bayesian_mse"] * r["points"]
-            ood_total["ude"]      += r["ude_mse"]      * r["points"]
-            ood_total["physics"]  += r["physics_mse"]  * r["points"]
-            ood_total["points"]   += r["points"]
-        end
-    end
-
-    if ood_total["points"] > 0
-        ood_b = ood_total["bayesian"] / ood_total["points"]
-        ood_u = ood_total["ude"]      / ood_total["points"]
-        ood_p = ood_total["physics"]  / ood_total["points"]
-        println("\nOOD TRAJECTORY SIMULATION RESULTS")
-        println("   Bayesian Neural ODE: $(round(ood_b, digits=2))")
-        println("   UDE: $(round(ood_u, digits=2))")
-        println("   Physics-only: $(round(ood_p, digits=2))")
-        # Append to markdown table
-        markdown_table *= "\n## OOD Results\n\n"
-        markdown_table *= "| Method | OOD Trajectory MSE |\n|--------|-------------------|\n"
-        markdown_table *= "| Bayesian Neural ODE | $(round(ood_b, digits=2)) |\n"
-        markdown_table *= "| UDE (Universal Differential Equations) | $(round(ood_u, digits=2)) |\n"
-        markdown_table *= "| Physics-Only Model | $(round(ood_p, digits=2)) |\n"
-    end
-end
+println("✅ Results saved to $(OUT_RES_DIR)/final_results_table.md")
 
 println("\n✅ FINAL RESULTS SUMMARY COMPLETE")
 println("="^60) 

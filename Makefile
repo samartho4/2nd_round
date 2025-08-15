@@ -1,4 +1,4 @@
-.PHONY: setup data tune train eval stats baselines dataset bench results figs verify repro test
+.PHONY: setup data tune train eval stats baselines dataset bench results figs verify repro test determinism
 
 setup:
 	bin/mg setup
@@ -38,6 +38,9 @@ verify:
 
 repro:
 	bin/mg repro
+
+determinism:
+	bin/mg determinism
 
 test:
 	julia --project=. -e 'using Pkg; Pkg.test()' 

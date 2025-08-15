@@ -6,6 +6,7 @@ using Random, TOML, Dates, BSON, CSV, DataFrames, Statistics
 using DifferentialEquations
 using Turing
 using MCMCChains
+using Pkg
 
 include(joinpath(@__DIR__, "microgrid_system.jl"))
 include(joinpath(@__DIR__, "neural_ode_architectures.jl"))
@@ -62,7 +63,6 @@ function capture_metadata(config::Dict{String,Any})
     end
     
     # Get package versions using Pkg
-    using Pkg
     pkg_deps = Pkg.dependencies()
     packages = Dict{String, String}()
     for (uuid, dep) in pkg_deps
@@ -80,13 +80,15 @@ function capture_metadata(config::Dict{String,Any})
         :timestamp => Dates.format(Dates.now(), dateformat"yyyy-mm-ddTHH:MM:SS"),
     )
     
-    # Save to paper/results/run_meta.json for reproducibility
+    # Save to paper/results/run_meta.toml for reproducibility
     results_dir = joinpath(@__DIR__, "..", "paper", "results")
     mkpath(results_dir)
     
-    # Use TOML for saving since we don't have JSON.jl as dependency
+    # Convert symbols and other non-TOML types for serialization
+    metadata_sanitized = sanitize_for_toml(metadata)
+    
     open(joinpath(results_dir, "run_meta.toml"), "w") do io
-        TOML.print(io, metadata)
+        TOML.print(io, metadata_sanitized)
     end
     
     return metadata
@@ -97,6 +99,22 @@ function initial_theta(init_scheme::AbstractString, init_scale::Float64, dim::In
         return zeros(dim)
     else
         return init_scale .* randn(dim)
+    end
+end
+
+function sanitize_for_toml(x)
+    if isa(x, Symbol)
+        return string(x)
+    elseif isa(x, Dict)
+        result = Dict{String,Any}()
+        for (k, v) in x
+            result[string(k)] = sanitize_for_toml(v)
+        end
+        return result
+    elseif isa(x, Vector)
+        return [sanitize_for_toml(v) for v in x]
+    else
+        return x
     end
 end
 

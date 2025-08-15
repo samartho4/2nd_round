@@ -45,7 +45,7 @@ function run_determinism_check()
         
         for seed in 42:(41+n_seeds)
             println("  → Seed $seed...")
-            cfg = Dict("train" => Dict("seed" => seed, "samples" => 100, "warmup" => 50))  # Small for speed
+            cfg = Dict{String,Any}("train" => Dict{String,Any}("seed" => seed, "samples" => 100, "warmup" => 50))  # Small for speed
             
             res = Training.train!(modeltype=:bnn, cfg=cfg)
             push!(bnn_results, Dict(
@@ -66,7 +66,7 @@ function run_determinism_check()
         
         for seed in 42:(41+n_seeds)
             println("  → Seed $seed...")
-            cfg = Dict("train" => Dict("seed" => seed, "samples" => 100, "warmup" => 50))  # Small for speed
+            cfg = Dict{String,Any}("train" => Dict{String,Any}("seed" => seed, "samples" => 100, "warmup" => 50))  # Small for speed
             
             res = Training.train!(modeltype=:ude, cfg=cfg)
             push!(ude_results, Dict(

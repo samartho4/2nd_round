@@ -51,11 +51,11 @@ function discover_symbolic_laws()
         # Extract neural network residuals for symbolic regression
         # This would typically come from evaluating the trained neural network
         # For now, generate representative data
-        return generate_synthetic_symbolic_data()
+        return extract_real_neural_residuals()
         
     catch e
         @warn "Failed to load UDE results" error=e
-        return generate_synthetic_symbolic_data()
+        return extract_real_neural_residuals()
     end
 end
 

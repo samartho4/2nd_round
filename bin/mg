@@ -22,6 +22,10 @@ Usage:
   mg figs            # regenerate figures
   mg repro           # full reproduction (data->train->eval->results->figs->verify)
   mg determinism     # validate determinism across multiple seeds
+  mg generalization  # run generalization study (OOD, horizon, data-size curves)
+  mg ablations       # UDE stability & ablation studies
+  mg symbolic        # enhanced symbolic regression with validation
+  mg forensics       # error forensics & failure analysis
 
 Env overrides are respected (see scripts for details).
 EOF
@@ -71,6 +75,18 @@ case "$cmd" in
     ;;
   determinism)
     julia --project=. scripts/determinism_check.jl "$@"
+    ;;
+  generalization)
+    julia --project=. scripts/generalization_study.jl "$@"
+    ;;
+  ablations)
+    julia --project=. scripts/ude_stability_ablations.jl "$@"
+    ;;
+  symbolic)
+    julia --project=. scripts/enhanced_symbolic_regression.jl "$@"
+    ;;
+  forensics)
+    julia --project=. scripts/error_forensics.jl "$@"
     ;;
   *) usage ;;
  esac 

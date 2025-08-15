@@ -1,7 +1,7 @@
 julia_version = "1.11.6"
-git_sha = "b3e8b16c01b8daab0c4a4833561661d18c376b13"
+git_sha = "d6e656f31a3a8999c41a225e7545aa8fe6d1671d"
 cpu = "apple-m2"
-timestamp = "2025-08-15T21:45:52"
+timestamp = "2025-08-15T23:00:37"
 machine = "arm64-apple-darwin24.0.0"
 os = "Darwin"
 

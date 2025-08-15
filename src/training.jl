@@ -167,29 +167,32 @@ function train!(; modeltype::Symbol=:bnn, cfg::Dict=load_config())
 
     if modeltype == :bnn
         @model function bayesian_neural_ode(t, Y, u0)
+            # Non-centered parameterization for better HMC geometry
             σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
-            θ ~ MvNormal(zeros(num_params), 0.1^2 * I(num_params))
+            θ_raw ~ MvNormal(zeros(num_params), I(num_params))  # Standard normal
+            θ = 0.1 * θ_raw  # Scale to actual parameter range
+            
             prob = ODEProblem(deriv_fn, u0, (minimum(t), maximum(t)), θ)
             sol = solve(prob, solver; saveat=t, abstol=abstol, reltol=reltol, maxiters=10000)
             if sol.retcode != :Success || length(sol) != length(t)
                 Turing.@addlogprob! -Inf
                 return
             end
-            Ŷ = hcat(sol.u...)'
+            Ŷ = hcat(sol.u...)'
             for i in 1:length(t)
-                Y[i, :] ~ MvNormal(Ŷ[i, :], σ^2 * I(2))
+                Y[i, :] ~ MvNormal(Ŷ[i, :], σ^2 * I(2))
             end
         end
         model = bayesian_neural_ode(t_train, Y_train, u0_train)
 
-        initial_params = (σ = 0.1, θ = initial_theta("normal", 0.1, num_params))
+        initial_params = (σ = 0.1, θ_raw = initial_theta("normal", 1.0, num_params))  # Unit scale for raw params
         if advi_iters > 0
             try
                 q = Turing.Variational.vi(model, Turing.Variational.ADVI(advi_iters))
                 if hasproperty(q, :posterior) && hasproperty(q.posterior, :μ)
                     μ = q.posterior.μ
                     if length(μ) == num_params + 1
-                        initial_params = (σ = max(0.05, abs(μ[end])), θ = μ[1:num_params])
+                        initial_params = (σ = max(0.05, abs(μ[end])), θ_raw = μ[1:num_params])
                     end
                 end
             catch e
@@ -197,12 +200,16 @@ function train!(; modeltype::Symbol=:bnn, cfg::Dict=load_config())
             end
         end
 
-        target_accept_val = getcfg(cfg, 0.85, :tuning, :nuts_target)
+        # Improved NUTS settings
+        target_accept_val = getcfg(cfg, 0.95, :tuning, :nuts_target)  # Increased from 0.85
         target_accept = isa(target_accept_val, Vector) ? Float64(first(target_accept_val)) : Float64(target_accept_val)
-        chain = sample(model, NUTS(target_accept), nsamples;
+        max_depth = Int(getcfg(cfg, 10, :tuning, :nuts_max_depth))
+        chain = sample(model, NUTS(target_accept; max_depth=max_depth), nsamples;
                        discard_initial=nwarmup, progress=true, initial_params=initial_params)
 
-        θ_samples = Array(chain)[:, 1:num_params]
+        # Extract and transform samples back to original scale
+        θ_raw_samples = Array(chain)[:, 1:num_params]
+        θ_samples = 0.1 * θ_raw_samples  # Transform back to parameter scale
         σ_samples = Array(chain)[:, num_params+1]
         keep = min(500, size(θ_samples, 1))
         res = Dict(
@@ -236,13 +243,24 @@ function train!(; modeltype::Symbol=:bnn, cfg::Dict=load_config())
         end
 
         @model function bayesian_ude(t, Y, u0)
+            # Non-centered parameterization for better HMC geometry
             σ ~ truncated(Normal(0.1, 0.05), 0.01, 0.5)
-            ηin ~ truncated(Normal(0.9, 0.1), 0.5, 1.0)
-            ηout ~ truncated(Normal(0.9, 0.1), 0.5, 1.0)
-            α ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
-            β ~ truncated(Normal(1.0, 0.2), 0.5, 2.0)
-            γ ~ truncated(Normal(0.001, 0.0005), 0.0001, 0.01)
-            nn_params ~ MvNormal(zeros(15), 0.05)
+            
+            # Physics parameters with non-centered parameterization
+            ηin_raw ~ Normal(0, 1)
+            ηin = 0.9 + 0.1 * ηin_raw
+            ηout_raw ~ Normal(0, 1)
+            ηout = 0.9 + 0.1 * ηout_raw
+            α_raw ~ Normal(0, 1)
+            α = 0.001 + 0.0005 * α_raw
+            β_raw ~ Normal(0, 1)
+            β = 1.0 + 0.2 * β_raw
+            γ_raw ~ Normal(0, 1)
+            γ = 0.001 + 0.0005 * γ_raw
+            
+            # Neural network parameters
+            nn_params_raw ~ MvNormal(zeros(15), I(15))
+            nn_params = 0.05 * nn_params_raw
             p = [ηin, ηout, α, β, γ, nn_params...]
             prob = ODEProblem(ude_dynamics!, u0, (minimum(t), maximum(t)), p)
             sol = solve(prob, solver; saveat=t, abstol=abstol, reltol=reltol, maxiters=10000)
@@ -257,7 +275,7 @@ function train!(; modeltype::Symbol=:bnn, cfg::Dict=load_config())
         end
         model = bayesian_ude(t_train, Y_train, u0_train)
 
-        initial_params = (σ = 0.1, ηin = 0.9, ηout = 0.9, α = 0.001, β = 1.0, γ = 0.001, nn_params = initial_theta("normal", 0.1, 15))
+        initial_params = (σ = 0.1, ηin_raw = 0.0, ηout_raw = 0.0, α_raw = 0.0, β_raw = 0.0, γ_raw = 0.0, nn_params_raw = initial_theta("normal", 1.0, 15))
         if advi_iters > 0
             try
                 q = Turing.Variational.vi(model, Turing.Variational.ADVI(advi_iters))
@@ -274,15 +292,23 @@ function train!(; modeltype::Symbol=:bnn, cfg::Dict=load_config())
             end
         end
 
-        target_accept_val = getcfg(cfg, 0.85, :tuning, :nuts_target)
+        # Improved NUTS settings
+        target_accept_val = getcfg(cfg, 0.95, :tuning, :nuts_target)  # Increased from 0.85
         target_accept = isa(target_accept_val, Vector) ? Float64(first(target_accept_val)) : Float64(target_accept_val)
-        chain = sample(model, NUTS(target_accept), nsamples;
+        max_depth = Int(getcfg(cfg, 10, :tuning, :nuts_max_depth))
+        chain = sample(model, NUTS(target_accept; max_depth=max_depth), nsamples;
                        discard_initial=nwarmup, progress=true, initial_params=initial_params)
 
         arr = Array(chain)
-        physics = arr[:, 1:5]
-        neural  = arr[:, 6:20]
-        σs      = arr[:, 21]
+        # Transform raw parameters back to original scales
+        ηin_vals = 0.9 .+ 0.1 .* arr[:, 2]
+        ηout_vals = 0.9 .+ 0.1 .* arr[:, 3]
+        α_vals = 0.001 .+ 0.0005 .* arr[:, 4]
+        β_vals = 1.0 .+ 0.2 .* arr[:, 5]
+        γ_vals = 0.001 .+ 0.0005 .* arr[:, 6]
+        physics = hcat(ηin_vals, ηout_vals, α_vals, β_vals, γ_vals)
+        neural = 0.05 .* arr[:, 7:21]  # Transform neural params back to original scale
+        σs = arr[:, 1]
         keep = min(300, size(arr, 1))
         res = Dict(
             :physics_params_mean => mean(physics, dims=1)[1, :],

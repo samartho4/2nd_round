@@ -1,7 +1,7 @@
 julia_version = "1.11.6"
-git_sha = "3671e6cf12f167730c58bf03ff7a733e91258526"
+git_sha = "6a2142e13b8c976639398241c2d9f08f6aac57cb"
 cpu = "apple-m2"
-timestamp = "2025-08-16T01:30:41"
+timestamp = "2025-08-17T17:39:48"
 machine = "arm64-apple-darwin24.0.0"
 os = "Darwin"
 
@@ -506,8 +506,33 @@ ArgCheck = "2.5.0"
 Xorg_libXi_jll = "1.8.3+0"
 PtrArrays = "1.3.0"
 
+[config.model]
+arch = "baseline_bias"
+
+[config.tuning]
+init_schemes = ["random", "zeros"]
+samples = 250
+sigma_theta = [0.1, 0.2, 0.3]
+max_points = 400
+init_scale = [0.05, 0.1, 0.2]
+nuts_target = [0.6, 0.65, 0.8]
+warmup = 50
+
 [config.train]
-samples = 200
-seed = 42
-subset_size = 1000
-warmup = 100
+samples = 1000
+subset_size = 10000
+warmup = 200
+
+[config.solver]
+reltol = 1.0e-8
+abstol = 1.0e-8
+
+[config.paths]
+results_dir = "paper/results"
+figures_dir = "paper/figures"
+
+[config.data]
+train_scenarios = []
+test_scenarios = []
+ood_scenarios = []
+scenario_disjoint = false

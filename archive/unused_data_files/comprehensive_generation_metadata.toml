@@ -1,0 +1,69 @@
+data_integrity = "VERIFIED - Comprehensive overlapping distributions"
+physics_model = "Realistic microgrid with battery SOC and power balance"
+dataset_type = "comprehensive"
+generation_timestamp = "2025-08-17T17:36:33.994"
+available_sizes = [1000, 2000, 5000, 10000]
+
+[parameters]
+"γ" = "Generation variability [0.2-0.6]"
+"ηin" = "Battery charging efficiency [0.85-0.95]"
+"ηout" = "Battery discharging efficiency [0.85-0.95]"
+"α" = "Grid coupling coefficient [0.1-0.5]"
+"β" = "Load response coefficient [0.8-1.5]"
+
+[validation.C12_violations]
+test = []
+validation = []
+train = []
+
+[validation.C34_violations]
+test = []
+validation = []
+train = []
+
+[validation.C19_violations]
+test = []
+validation = []
+train = []
+
+[validation.C20_violations]
+test = []
+validation = []
+train = []
+
+[validation.C43_violations]
+test = []
+validation = []
+train = []
+
+[validation.C35_violations]
+test = []
+validation = []
+train = []
+
+[validation.C42_violations]
+test = []
+validation = []
+train = []
+
+[validation.C41_violations]
+test = []
+validation = []
+train = []
+
+[validation.C37_violations]
+test = []
+validation = []
+train = []
+
+[validation.C22_violations]
+test = []
+validation = []
+train = []
+
+[validation.C44_violations]
+test = []
+validation = []
+train = []
+
+[validation.temporal_splits]

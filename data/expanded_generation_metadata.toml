@@ -1,0 +1,15 @@
+data_integrity = "VERIFIED - Expanded from existing datasets"
+physics_model = "Realistic microgrid with battery SOC and power balance"
+dataset_type = "expanded_combined"
+generation_timestamp = "2025-08-17T17:38:03.384"
+available_sizes = [1000, 2000, 5000, 10000, 15000]
+
+[validation]
+val_samples = 116
+train_samples = 7334
+test_samples = 117
+total_samples = 7567
+
+[state_variables]
+x1 = "Battery State of Charge [0-1]"
+x2 = "Power Imbalance [kW]"

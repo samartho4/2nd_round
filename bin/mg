@@ -49,9 +49,23 @@ case "$cmd" in
     (cd data && shasum *.csv scenarios/*/*.csv > hashes.txt)
     echo "✅ Data regenerated and hashes written to data/hashes.txt"
     ;;
+  comprehensive_data)
+    julia --project=. scripts/generate_comprehensive_dataset.jl "$@"
+    (cd data && shasum *.csv scenarios/*/*.csv > comprehensive_hashes.txt)
+    echo "✅ Comprehensive data generated and hashes written to data/comprehensive_hashes.txt"
+    ;;
+  expand_data)
+    julia --project=. scripts/expand_existing_data.jl "$@"
+    (cd data && shasum *.csv scenarios/*/*.csv > expanded_hashes.txt)
+    echo "✅ Expanded data generated and hashes written to data/expanded_hashes.txt"
+    ;;
   tune)      julia --project=. scripts/hparam_tuning.jl "$@" ;;
   train)     julia --project=. scripts/train.jl "$@" ;;
-  eval)      julia --project=. scripts/evaluate.jl "$@" ;;
+
+
+  simple_eval) julia --project=. scripts/simple_model_comparison.jl "$@" ;;
+
+
   stats)     julia --project=. scripts/statistical_validation.jl "$@" ;;
   baselines) julia --project=. scripts/comprehensive_baselines.jl "$@" ;;
   dataset)   julia --project=. scripts/dataset_analysis.jl "$@" ;;

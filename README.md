@@ -95,7 +95,7 @@ Legacy/duplicate files live in `archive/unused_data_files/`. This includes:
 
 ## About
 
- LinkedIn: https://www.linkedin.com/in/samarthxsharma/
+ No description, website, or topics provided.
 
 ### Resources
 

@@ -1,7 +1,7 @@
 julia_version = "1.11.6"
-git_sha = "6a2142e13b8c976639398241c2d9f08f6aac57cb"
+git_sha = "8ccda9d9e3e87b043f7554fe2d791921e06c7edd"
 cpu = "apple-m2"
-timestamp = "2025-08-17T17:39:48"
+timestamp = "2025-08-17T20:54:54"
 machine = "arm64-apple-darwin24.0.0"
 os = "Darwin"
 
@@ -511,17 +511,18 @@ arch = "baseline_bias"
 
 [config.tuning]
 init_schemes = ["random", "zeros"]
-samples = 250
+max_depth = 12
+samples = 500
 sigma_theta = [0.1, 0.2, 0.3]
 max_points = 400
 init_scale = [0.05, 0.1, 0.2]
-nuts_target = [0.6, 0.65, 0.8]
-warmup = 50
+nuts_target = [0.65]
+warmup = 100
 
 [config.train]
-samples = 1000
+samples = 3000
 subset_size = 10000
-warmup = 200
+warmup = 800
 
 [config.solver]
 reltol = 1.0e-8

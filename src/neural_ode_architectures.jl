@@ -1,6 +1,6 @@
 module NeuralNODEArchitectures
 
-export baseline_nn!, baseline_nn_bias!, deep_nn!
+export baseline_nn!, baseline_nn_bias!, deep_nn!, ude_nn_forward
 
 using DifferentialEquations
 
@@ -114,6 +114,61 @@ function deep_nn!(du, u, θ, t)
     # Complex dynamics with neural enhancement
     du[1] = (-0.12 * x2 + 0.03 * neural_x1) * daily_factor
     du[2] = (-0.28 * x2 + 0.04 * neural_x2 + 0.01 * x1 * neural_x1) * daily_factor
+end
+
+"""
+    ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
+
+Neural network forward pass for UDE model.
+Takes state variables, external inputs, and time to produce neural correction term.
+Compatible with ForwardDiff automatic differentiation.
+"""
+function ude_nn_forward(x1, x2, Pgen, Pload, t, nn_params)
+    # Input features: [x1, x2, Pgen, Pload, t]
+    inputs = [x1, x2, Pgen, Pload, t]
+    
+    # Simple 2-layer network: 5 inputs -> 3 hidden -> 1 output
+    # Using 15 params for UDE (as specified in training)
+    
+    # Extract parameters safely with generic types
+    if length(nn_params) >= 15
+        # Use first 15 parameters for W1 (3x5 matrix)
+        W1 = reshape(nn_params[1:15], 3, 5)
+        
+        # Use remaining parameters or zeros for bias and output
+        if length(nn_params) >= 18
+            b1 = nn_params[16:18]
+        else
+            b1 = zeros(eltype(nn_params), 3)
+        end
+        
+        if length(nn_params) >= 21
+            W2 = nn_params[19:21]
+        else
+            W2 = ones(eltype(nn_params), 3)
+        end
+        
+        if length(nn_params) >= 22
+            b2 = nn_params[22]
+        else
+            b2 = zero(eltype(nn_params))
+        end
+    else
+        # Fallback for insufficient parameters
+        W1 = reshape([nn_params; zeros(eltype(nn_params), max(0, 15 - length(nn_params)))], 3, 5)
+        b1 = zeros(eltype(nn_params), 3)
+        W2 = ones(eltype(nn_params), 3)
+        b2 = zero(eltype(nn_params))
+    end
+    
+    # Hidden layer with tanh activation
+    hidden = tanh.(W1 * inputs + b1)
+    
+    # Output layer
+    output = sum(hidden .* W2) + b2
+    
+    # Apply output clipping for numerical stability
+    return clamp(output, -10.0, 10.0)
 end
 
 """

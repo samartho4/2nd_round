@@ -1,0 +1,19 @@
+# CONSISTENT DATA GENERATION METADATA
+Generated: 2025-08-17T20:05:09.127
+
+FIXES APPLIED:
+1. Overlapping time windows: train(0-48h), val(36-84h), test(72-120h)
+2. Consistent initial conditions across splits
+3. Same physics model for all splits
+4. SOC constrained to [0.0, 1.0] range
+
+DATA SUMMARY:
+Training samples: 30
+Validation samples: 31
+Test samples: 30
+Total scenarios: 90
+
+PHYSICS MODEL:
+- Original equations from paper
+- SOC bounds constraints added
+- Consistent parameters across splits

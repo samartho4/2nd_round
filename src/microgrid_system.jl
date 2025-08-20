@@ -1,6 +1,6 @@
 module Microgrid
 
-export microgrid_ode!, generation, load, create_scenarios, validate_physics
+export microgrid_ode!, generation, load, control_input, demand, create_scenarios, validate_physics
 
 using DifferentialEquations, Random, Distributions
 
@@ -20,46 +20,46 @@ using DifferentialEquations, Random, Distributions
 """
     microgrid_ode!(du, u, p, t)
 
-Realistic microgrid dynamics with proper physics:
-- dx1/dt = (ηin * P_charge - P_discharge/ηout) / battery_capacity
-- dx2/dt = P_gen(t) - P_load(t) - α*x2 - β*(charging_power)
+ORIGINAL EQUATIONS FROM PAPER with SOC bounds fix:
+- dx1/dt = ηin * u(t) * 1{u(t)>0} - (1/ηout) * u(t) * 1{u(t)<0} - d(t)
+- dx2/dt = -α * x2(t) + β * (Pgen(t) - Pload(t)) + γ * x1(t)
+- CRITICAL FIX: SOC constrained to [0.0, 1.0] range
 """
 function microgrid_ode!(du, u, p, t)
     x1, x2 = u  # SOC, Power imbalance
     ηin, ηout, α, β, γ = p[1:5]
     
-    # Physical constraints
-    x1_clamped = clamp(x1, 0.05, 0.95)  # Battery SOC limits
+    # CRITICAL FIX: Ensure SOC stays in physical bounds
+    x1_clamped = clamp(x1, 0.05, 0.95)
     
-    # Generation and load profiles (realistic daily patterns)
+    # Generation and load profiles (from paper)
     P_gen = generation(t, γ)
     P_load = load(t, β)
     
-    # Simplified but realistic battery dynamics
-    battery_capacity = 100.0  # kWh (larger for stability)
-    max_charge_rate = 5.0  # kW (slower for stability)
-    max_discharge_rate = 8.0  # kW
+    # Control input u(t) - simplified as power imbalance
+    u_t = P_gen - P_load
     
-    # Power flows with stability limits
-    if x2 > 0.1  # Excess power → charge battery (with deadband)
-        charge_power = min(x2 * 0.5, max_charge_rate) * (1.0 - x1_clamped)  # Less aggressive
-        P_charge = charge_power * ηin
-        P_discharge = 0.0
-    elseif x2 < -0.1  # Power deficit → discharge battery
-        discharge_power = min(-x2 * 0.5, max_discharge_rate) * x1_clamped
-        P_charge = 0.0
-        P_discharge = discharge_power / ηout
-    else  # Small imbalances - no battery action
-        P_charge = 0.0
-        P_discharge = 0.0
+    # Demand term d(t) - simplified as constant load
+    d_t = P_load * 0.1  # 10% of load as storage demand
+    
+    # ORIGINAL EQUATION 1: Energy Storage Dynamics
+    # dx1/dt = ηin * u(t) * 1{u(t)>0} - (1/ηout) * u(t) * 1{u(t)<0} - d(t)
+    if u_t > 0
+        du[1] = ηin * u_t - d_t  # Charging
+    else
+        du[1] = (1/ηout) * u_t - d_t  # Discharging
     end
     
-    # Simplified grid dynamics (more stable)
-    grid_damping = α * x2  # Grid stabilization
+    # ORIGINAL EQUATION 2: Grid Power Flow Dynamics  
+    # dx2/dt = -α * x2(t) + β * (Pgen(t) - Pload(t)) + γ * x1(t)
+    du[2] = -α * x2 + β * (P_gen - P_load) + γ * x1_clamped
     
-    # State derivatives (simplified for stability)
-    du[1] = (P_charge - P_discharge) / battery_capacity  # SOC rate
-    du[2] = (P_gen - P_load) * 0.5 - grid_damping - β * (P_charge - P_discharge) * 0.1  # Power balance
+    # CRITICAL FIX: Ensure derivatives don't cause unphysical states
+    if x1_clamped <= 0.05 && du[1] < 0
+        du[1] = 0.0  # Don't discharge below minimum
+    elseif x1_clamped >= 0.95 && du[1] > 0
+        du[1] = 0.0  # Don't charge above maximum
+    end
 end
 
 """
@@ -106,6 +106,57 @@ function load(t, β=1.2)
     # Load variability
     noise = 0.1 * β * randn() * sqrt(base)
     return max(2.0, base + noise)
+end
+
+"""
+    control_input(t)
+
+Generate control input u(t) for charging (+) or discharging (-) based on time.
+This represents the microgrid control strategy.
+"""
+function control_input(t::Float64)
+    # Control strategy based on time of day patterns
+    hour = mod(t, 24.0)
+    
+    # Base control logic - simplified for training
+    if 2.0 <= hour <= 6.0  # Early morning charging
+        control = 2.0
+    elseif 18.0 <= hour <= 22.0  # Evening discharge support
+        control = -1.0
+    else
+        control = 0.0  # No significant grid imbalance
+    end
+    
+    # Add small random variations (realistic control noise)
+    control += 0.1 * randn()
+    
+    return clamp(control, -5.0, 5.0)  # Physical limits
+end
+
+"""
+    demand(t)
+
+Power demand from storage d(t) - simplified as time-varying load.
+"""
+function demand(t::Float64)
+    hour = mod(t, 24.0)
+    
+    # Daily demand pattern (0.1-0.8 kW)
+    if 0 <= hour <= 6
+        base = 0.2 + 0.1 * sin(π * hour / 6)  # Early morning
+    elseif 6 <= hour <= 9
+        base = 0.4 + 0.2 * sin(π * (hour - 6) / 3)  # Morning peak
+    elseif 9 <= hour <= 17
+        base = 0.3 + 0.1 * sin(π * (hour - 9) / 8)  # Daytime
+    elseif 17 <= hour <= 21
+        base = 0.6 + 0.2 * sin(π * (hour - 17) / 4)  # Evening peak
+    else
+        base = 0.2 - 0.1 * sin(π * (hour - 21) / 3)  # Night
+    end
+    
+    # Add small variability
+    noise = 0.05 * randn() * sqrt(base)
+    return max(0.05, base + noise)
 end
 
 """
@@ -167,7 +218,7 @@ Check if solution satisfies physical constraints.
 function validate_physics(sol)
     violations = String[]
     
-    # Check SOC bounds
+    # Check SOC bounds (CRITICAL: Must be in [0,1])
     x1_min, x1_max = extrema(sol[1, :])
     if x1_min < 0.0 || x1_max > 1.0
         push!(violations, "SOC out of bounds: [$x1_min, $x1_max]")

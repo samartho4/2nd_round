@@ -1,0 +1,19 @@
+# SIMPLE DATA FIX METADATA
+Generated: 2025-08-17T19:28:10.190
+
+FIXES APPLIED:
+1. SOC values clamped to [0.0, 1.0] range
+2. Small noise added to boundary values
+3. All datasets updated
+
+DATA SUMMARY:
+Training samples: 7334
+Test samples: 117
+Validation samples: 116
+
+SOC RANGES:
+Training: [0.004, 0.997]
+Test: [0.198, 0.802]
+Validation: [0.197, 0.802]
+
+STATUS: PHYSICALLY VALID
